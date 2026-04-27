@@ -44,6 +44,24 @@ Key files:
 - Windows quality-of-life:
   - UTF‑8 BOM is ignored in the lexer; error printing hides BOM so caret alignment stays sane.
 
+### Stage 1 (extended): “don’t limit ourselves”
+
+- Added a first real collection type: `list`
+  - List literals: `[1, 2, 3]`
+  - Indexing: `a[0]` and also `"text"[1]`
+- Expanded the built-in standard library further:
+  - Lists: `push`, `pop`, `insert`, `remove_at`, `range`, `split`, `join`
+  - Random + time: `rand`, `randint`, `seed`, `now_ms`, `sleep_ms`
+  - Files + OS: `read_file`, `write_file`, `cwd`
+  - Modules (simple): `include("other.veda")` runs another file in the same environment
+  - Debugging: `panic(message)` raises a runtime error on purpose
+- `veda check` now does semantic checks (in addition to lexer + parser):
+  - Undefined variables
+  - Assignment to undefined variables
+  - `give` used outside `work`
+- Error presentation improved:
+  - Underlines the full token span (not just a single caret)
+
 How to try:
 
 - `python main.py run examples/hello.veda`

@@ -332,6 +332,8 @@ class Lexer:
             "(": TokenType.LPAREN,
             ")": TokenType.RPAREN,
             ",": TokenType.COMMA,
+            "[": TokenType.LBRACKET,
+            "]": TokenType.RBRACKET,
             "+": TokenType.PLUS,
             "-": TokenType.MINUS,
             "*": TokenType.STAR,

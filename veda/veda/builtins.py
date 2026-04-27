@@ -15,6 +15,8 @@ def veda_type_name(value: Any) -> str:
         return "number"
     if isinstance(value, str):
         return "text"
+    if isinstance(value, list):
+        return "list"
     if callable(value):
         return "function"
     return "unknown"
@@ -27,6 +29,9 @@ def to_veda_text(value: Any) -> str:
         return "true"
     if value is False:
         return "false"
+    if isinstance(value, list):
+        inner = ", ".join(to_veda_text(v) for v in value)
+        return "[" + inner + "]"
     return str(value)
 
 
@@ -54,4 +59,3 @@ class BuiltinFunction:
 
     def __repr__(self) -> str:
         return f"<builtin {self.name}>"
-

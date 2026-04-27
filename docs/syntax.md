@@ -9,6 +9,7 @@ Veda has these runtime types:
 - `number` (integers + decimals)
 - `text` (double-quoted strings)
 - `bool` (`true` / `false`)
+- `list` (ordered collection)
 - `none` (returned by functions that don’t `give`)
 - `function` (built-ins and `work` functions)
 
@@ -140,11 +141,63 @@ Truthiness rules:
 - `min(a, b)` → number
 - `max(a, b)` → number
 - `clamp(value, lo, hi)` → number
+- `split(text, sep)` → list
+- `join(list, sep)` → text
+- `push(list, value)` → none (mutates the list)
+- `pop(list)` → value (removes last)
+- `insert(list, index, value)` → none (mutates)
+- `remove_at(list, index)` → value
+- `range(start, end)` → list (inclusive)
+- `rand()` → number (0..1)
+- `randint(lo, hi)` → number
+- `seed(number)` → none
+- `now_ms()` → number
+- `sleep_ms(ms)` → none
+- `read_file(path)` → text
+- `write_file(path, text)` → none
+- `cwd()` → text
+- `panic(message)` → (raises a runtime error)
+- `include(path)` → none (runs another `.veda` file in the current environment)
 
 Constants:
 
 - `pi`
 - `e`
+
+## Lists (v1.0)
+
+Create a list with square brackets:
+
+```veda
+make a = [1, 2, 3]
+show a
+```
+
+Indexing works on lists and text:
+
+```veda
+show a[0]
+show "hello"[1]   # "e"
+```
+
+Mutating helpers:
+
+```veda
+make items = []
+push(items, "a")
+push(items, "b")
+show items
+show pop(items)
+show items
+```
+
+## Program arguments
+
+When you run a file as `veda run myfile.veda one two`, the extra words are available as:
+
+```veda
+show args
+```
 
 ## Comments
 

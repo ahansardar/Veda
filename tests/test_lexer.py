@@ -25,3 +25,10 @@ def test_tokenizing_strings_and_numbers() -> None:
     assert number_tokens[0].literal == 12
     assert number_tokens[1].literal == 3.14
 
+
+def test_tokenizing_list_brackets() -> None:
+    source = "show [1, 2]\n"
+    tokens = Lexer(source, filename="test.veda").tokenize()
+    kinds = [t.type for t in tokens]
+    assert TokenType.LBRACKET in kinds
+    assert TokenType.RBRACKET in kinds

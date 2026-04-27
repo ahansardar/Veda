@@ -19,7 +19,8 @@ def format_error(name: str, message: str, source: str, span: SourceSpan) -> str:
         code_line = code_line[1:]
 
     caret_col = max(span.column, 1)
-    pointer = " " * (caret_col - 1) + "^"
+    underline = "^" * max(span.length, 1)
+    pointer = " " * (caret_col - 1) + underline
 
     gutter = f"{span.line} | "
     return (
@@ -58,4 +59,8 @@ class VedaNameError(VedaRuntimeError):
 
 
 class VedaTypeError(VedaRuntimeError):
+    pass
+
+
+class VedaCheckError(VedaError):
     pass

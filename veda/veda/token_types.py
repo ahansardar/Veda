@@ -17,6 +17,8 @@ class TokenType(Enum):
     LPAREN = auto()
     RPAREN = auto()
     COMMA = auto()
+    LBRACKET = auto()
+    RBRACKET = auto()
 
     PLUS = auto()
     MINUS = auto()
@@ -69,4 +71,3 @@ class Token:
 
     def is_keyword(self, value: str) -> bool:
         return self.type == TokenType.KEYWORD and self.lexeme == value
-

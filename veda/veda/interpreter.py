@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import math
+import os
+import random
+import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from veda.ast_nodes import (
@@ -13,6 +17,8 @@ from veda.ast_nodes import (
     FunctionCall,
     GiveStatement,
     Identifier,
+    IndexExpression,
+    ListLiteral,
     Literal,
     Program,
     RepeatStatement,
@@ -25,6 +31,8 @@ from veda.ast_nodes import (
 from veda.builtins import BuiltinFunction, to_veda_text, veda_type_name
 from veda.environment import Environment
 from veda.errors import SourceSpan, VedaNameError, VedaRuntimeError, VedaTypeError
+from veda.lexer import Lexer
+from veda.parser import Parser
 from veda.token_types import Token, TokenType
 
 
@@ -61,14 +69,17 @@ class Interpreter:
         self.globals = Environment(values={})
         self.env = self.globals
         self.builtin_names: set[str] = set()
+        self._call_depth = 0
         self._install_builtins()
 
     def _install_builtins(self) -> None:
         def _len(args: list[Any], source: str, span: SourceSpan) -> Any:
             value = args[0]
-            if not isinstance(value, str):
-                raise VedaTypeError("len() expects a text value.", source=source, span=span)
-            return len(value)
+            if isinstance(value, str):
+                return len(value)
+            if isinstance(value, list):
+                return len(value)
+            raise VedaTypeError("len() expects text or list.", source=source, span=span)
 
         def _type(args: list[Any], source: str, span: SourceSpan) -> Any:
             return veda_type_name(args[0])
@@ -246,6 +257,165 @@ class Interpreter:
                 raise VedaTypeError("clamp() expects lo <= hi.", source=source, span=span)
             return hi if value > hi else (lo if value < lo else value)
 
+        def _split(args: list[Any], source: str, span: SourceSpan) -> Any:
+            text, sep = args
+            if not isinstance(text, str) or not isinstance(sep, str):
+                raise VedaTypeError("split() expects (text, text).", source=source, span=span)
+            if sep == "":
+                raise VedaTypeError("split() separator cannot be empty.", source=source, span=span)
+            return text.split(sep)
+
+        def _join(args: list[Any], source: str, span: SourceSpan) -> Any:
+            items, sep = args
+            if not isinstance(items, list) or not isinstance(sep, str):
+                raise VedaTypeError("join() expects (list, text).", source=source, span=span)
+            return sep.join(to_veda_text(x) for x in items)
+
+        def _push(args: list[Any], source: str, span: SourceSpan) -> Any:
+            items, value = args
+            if not isinstance(items, list):
+                raise VedaTypeError("push() expects a list as first argument.", source=source, span=span)
+            items.append(value)
+            return None
+
+        def _pop(args: list[Any], source: str, span: SourceSpan) -> Any:
+            items = args[0]
+            if not isinstance(items, list):
+                raise VedaTypeError("pop() expects a list.", source=source, span=span)
+            if not items:
+                raise VedaRuntimeError("pop() on empty list.", source=source, span=span)
+            return items.pop()
+
+        def _insert(args: list[Any], source: str, span: SourceSpan) -> Any:
+            items, index, value = args
+            if not isinstance(items, list):
+                raise VedaTypeError("insert() expects a list as first argument.", source=source, span=span)
+            if isinstance(index, bool) or not isinstance(index, (int, float)):
+                raise VedaTypeError("insert() expects index as a number.", source=source, span=span)
+            items.insert(int(index), value)
+            return None
+
+        def _remove_at(args: list[Any], source: str, span: SourceSpan) -> Any:
+            items, index = args
+            if not isinstance(items, list):
+                raise VedaTypeError("remove_at() expects a list as first argument.", source=source, span=span)
+            if isinstance(index, bool) or not isinstance(index, (int, float)):
+                raise VedaTypeError("remove_at() expects index as a number.", source=source, span=span)
+            i = int(index)
+            if i < 0 or i >= len(items):
+                raise VedaRuntimeError("remove_at() index out of range.", source=source, span=span)
+            return items.pop(i)
+
+        def _range_list(args: list[Any], source: str, span: SourceSpan) -> Any:
+            start, end = args
+            if isinstance(start, bool) or not isinstance(start, (int, float)):
+                raise VedaTypeError("range() expects numbers.", source=source, span=span)
+            if isinstance(end, bool) or not isinstance(end, (int, float)):
+                raise VedaTypeError("range() expects numbers.", source=source, span=span)
+            a = int(start)
+            b = int(end)
+            step = 1 if b >= a else -1
+            out: list[int] = []
+            i = a
+            while True:
+                out.append(i)
+                if i == b:
+                    break
+                i += step
+            return out
+
+        def _rand(args: list[Any], source: str, span: SourceSpan) -> Any:
+            return random.random()
+
+        def _randint(args: list[Any], source: str, span: SourceSpan) -> Any:
+            lo, hi = args
+            if isinstance(lo, bool) or not isinstance(lo, (int, float)):
+                raise VedaTypeError("randint() expects numbers.", source=source, span=span)
+            if isinstance(hi, bool) or not isinstance(hi, (int, float)):
+                raise VedaTypeError("randint() expects numbers.", source=source, span=span)
+            return random.randint(int(lo), int(hi))
+
+        def _seed(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise VedaTypeError("seed() expects a number.", source=source, span=span)
+            random.seed(int(value))
+            return None
+
+        def _now_ms(args: list[Any], source: str, span: SourceSpan) -> Any:
+            return int(time.time() * 1000)
+
+        def _sleep_ms(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise VedaTypeError("sleep_ms() expects a number.", source=source, span=span)
+            ms = float(value)
+            if ms < 0:
+                raise VedaTypeError("sleep_ms() cannot be negative.", source=source, span=span)
+            time.sleep(ms / 1000.0)
+            return None
+
+        def _read_file(args: list[Any], source: str, span: SourceSpan) -> Any:
+            path = args[0]
+            if not isinstance(path, str):
+                raise VedaTypeError("read_file() expects a text path.", source=source, span=span)
+            try:
+                return Path(path).read_text(encoding="utf-8")
+            except Exception as e:
+                raise VedaRuntimeError("Could not read file.", source=source, span=span) from e
+
+        def _write_file(args: list[Any], source: str, span: SourceSpan) -> Any:
+            path, text = args
+            if not isinstance(path, str) or not isinstance(text, str):
+                raise VedaTypeError("write_file() expects (text, text).", source=source, span=span)
+            try:
+                Path(path).write_text(text, encoding="utf-8")
+            except Exception as e:
+                raise VedaRuntimeError("Could not write file.", source=source, span=span) from e
+            return None
+
+        def _cwd(args: list[Any], source: str, span: SourceSpan) -> Any:
+            return os.getcwd()
+
+        def _panic(args: list[Any], source: str, span: SourceSpan) -> Any:
+            msg = args[0]
+            raise VedaRuntimeError(to_veda_text(msg), source=source, span=span)
+
+        def _include(args: list[Any], source: str, span: SourceSpan) -> Any:
+            path_value = args[0]
+            if not isinstance(path_value, str):
+                raise VedaTypeError("include() expects a text path.", source=source, span=span)
+
+            base: Path | None = None
+            if self.filename and not self.filename.startswith("<"):
+                try:
+                    base = Path(self.filename).resolve().parent
+                except Exception:
+                    base = None
+
+            path = Path(path_value)
+            if not path.is_absolute() and base is not None:
+                path = base / path
+
+            try:
+                included_source = path.read_text(encoding="utf-8")
+            except Exception as e:
+                raise VedaRuntimeError("Could not read included file.", source=source, span=span) from e
+
+            tokens = Lexer(included_source, filename=str(path)).tokenize()
+            program = Parser(tokens, source=included_source, filename=str(path)).parse()
+
+            old_source = self.source
+            old_filename = self.filename
+            try:
+                self.source = included_source
+                self.filename = str(path)
+                self.run(program)
+            finally:
+                self.source = old_source
+                self.filename = old_filename
+            return None
+
         self.globals.define("replace", BuiltinFunction("replace", _replace, min_arity=3, max_arity=3))
         self.globals.define("contains", BuiltinFunction("contains", _contains, min_arity=2, max_arity=2))
         self.globals.define("starts", BuiltinFunction("starts", _starts, min_arity=2, max_arity=2))
@@ -253,6 +423,23 @@ class Interpreter:
         self.globals.define("find", BuiltinFunction("find", _find, min_arity=2, max_arity=2))
         self.globals.define("slice", BuiltinFunction("slice", _slice, min_arity=3, max_arity=3))
         self.globals.define("repeat_text", BuiltinFunction("repeat_text", _repeat_text, min_arity=2, max_arity=2))
+        self.globals.define("split", BuiltinFunction("split", _split, min_arity=2, max_arity=2))
+        self.globals.define("join", BuiltinFunction("join", _join, min_arity=2, max_arity=2))
+        self.globals.define("push", BuiltinFunction("push", _push, min_arity=2, max_arity=2))
+        self.globals.define("pop", BuiltinFunction("pop", _pop, min_arity=1, max_arity=1))
+        self.globals.define("insert", BuiltinFunction("insert", _insert, min_arity=3, max_arity=3))
+        self.globals.define("remove_at", BuiltinFunction("remove_at", _remove_at, min_arity=2, max_arity=2))
+        self.globals.define("range", BuiltinFunction("range", _range_list, min_arity=2, max_arity=2))
+        self.globals.define("rand", BuiltinFunction("rand", _rand, min_arity=0, max_arity=0))
+        self.globals.define("randint", BuiltinFunction("randint", _randint, min_arity=2, max_arity=2))
+        self.globals.define("seed", BuiltinFunction("seed", _seed, min_arity=1, max_arity=1))
+        self.globals.define("now_ms", BuiltinFunction("now_ms", _now_ms, min_arity=0, max_arity=0))
+        self.globals.define("sleep_ms", BuiltinFunction("sleep_ms", _sleep_ms, min_arity=1, max_arity=1))
+        self.globals.define("read_file", BuiltinFunction("read_file", _read_file, min_arity=1, max_arity=1))
+        self.globals.define("write_file", BuiltinFunction("write_file", _write_file, min_arity=2, max_arity=2))
+        self.globals.define("cwd", BuiltinFunction("cwd", _cwd, min_arity=0, max_arity=0))
+        self.globals.define("panic", BuiltinFunction("panic", _panic, min_arity=1, max_arity=1))
+        self.globals.define("include", BuiltinFunction("include", _include, min_arity=1, max_arity=1))
         self.globals.define("sqrt", BuiltinFunction("sqrt", _sqrt, min_arity=1, max_arity=1))
         self.globals.define("pow", BuiltinFunction("pow", _pow, min_arity=2, max_arity=2))
         self.globals.define("min", BuiltinFunction("min", _min2, min_arity=2, max_arity=2))
@@ -282,6 +469,23 @@ class Interpreter:
                 "find",
                 "slice",
                 "repeat_text",
+                "split",
+                "join",
+                "push",
+                "pop",
+                "insert",
+                "remove_at",
+                "range",
+                "rand",
+                "randint",
+                "seed",
+                "now_ms",
+                "sleep_ms",
+                "read_file",
+                "write_file",
+                "cwd",
+                "panic",
+                "include",
                 "sqrt",
                 "pow",
                 "min",
@@ -375,6 +579,12 @@ class Interpreter:
 
         if isinstance(stmt, GiveStatement):
             value = self._evaluate(stmt.value)
+            if self._call_depth <= 0:
+                raise VedaRuntimeError(
+                    "give can only be used inside a work function.",
+                    source=self.source,
+                    span=self._span(stmt.keyword),
+                )
             raise _ReturnSignal(value)
 
         if isinstance(stmt, ExpressionStatement):
@@ -470,6 +680,44 @@ class Interpreter:
             args = [self._evaluate(a) for a in expr.arguments]
             return self._call(callee, args, expr.paren)
 
+        if isinstance(expr, ListLiteral):
+            return [self._evaluate(item) for item in expr.items]
+
+        if isinstance(expr, IndexExpression):
+            target = self._evaluate(expr.target)
+            index_val = self._evaluate(expr.index)
+            if isinstance(index_val, bool) or not isinstance(index_val, (int, float)):
+                raise VedaTypeError(
+                    "Index must be a number.",
+                    source=self.source,
+                    span=self._span(expr.bracket),
+                )
+            i = int(index_val)
+
+            if isinstance(target, list):
+                if i < 0 or i >= len(target):
+                    raise VedaRuntimeError(
+                        "List index out of range.",
+                        source=self.source,
+                        span=self._span(expr.bracket),
+                    )
+                return target[i]
+
+            if isinstance(target, str):
+                if i < 0 or i >= len(target):
+                    raise VedaRuntimeError(
+                        "Text index out of range.",
+                        source=self.source,
+                        span=self._span(expr.bracket),
+                    )
+                return target[i]
+
+            raise VedaTypeError(
+                "Can only index lists or text.",
+                source=self.source,
+                span=self._span(expr.bracket),
+            )
+
         raise RuntimeError(f"Unhandled expression: {expr!r}")
 
     def _call(self, callee: Any, args: list[Any], paren: Token) -> Any:
@@ -491,11 +739,13 @@ class Interpreter:
             previous = self.env
             try:
                 self.env = local
+                self._call_depth += 1
                 for stmt in callee.body:
                     self._execute(stmt)
             except _ReturnSignal as r:
                 return r.value
             finally:
+                self._call_depth -= 1
                 self.env = previous
             return None
 

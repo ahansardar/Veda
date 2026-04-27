@@ -11,6 +11,8 @@ from veda.ast_nodes import (
     FunctionCall,
     GiveStatement,
     Identifier,
+    IndexExpression,
+    ListLiteral,
     Literal,
     Program,
     RepeatStatement,
@@ -190,9 +192,10 @@ class Parser:
             return self._work_decl()
 
         if self._match_keyword("give"):
+            keyword = self._previous()
             value = self._expression()
             self._consume_line_end()
-            return GiveStatement(value=value)
+            return GiveStatement(keyword=keyword, value=value)
 
         if self._check(TokenType.IDENTIFIER) and self._peek_next().type == TokenType.EQUAL:
             name = self._advance()
@@ -343,15 +346,26 @@ class Parser:
 
     def _call(self):
         expr = self._primary()
-        while self._match(TokenType.LPAREN):
-            paren = self._previous()
-            args: list = []
-            if not self._check(TokenType.RPAREN):
-                args.append(self._expression())
-                while self._match(TokenType.COMMA):
+        while True:
+            if self._match(TokenType.LPAREN):
+                paren = self._previous()
+                args: list = []
+                if not self._check(TokenType.RPAREN):
                     args.append(self._expression())
-            self._expect(TokenType.RPAREN, "Expected ')' after arguments.")
-            expr = FunctionCall(callee=expr, paren=paren, arguments=args)
+                    while self._match(TokenType.COMMA):
+                        args.append(self._expression())
+                self._expect(TokenType.RPAREN, "Expected ')' after arguments.")
+                expr = FunctionCall(callee=expr, paren=paren, arguments=args)
+                continue
+
+            if self._match(TokenType.LBRACKET):
+                bracket = self._previous()
+                index_expr = self._expression()
+                self._expect(TokenType.RBRACKET, "Expected ']' after index.")
+                expr = IndexExpression(target=expr, bracket=bracket, index=index_expr)
+                continue
+
+            break
         return expr
 
     def _primary(self):
@@ -378,5 +392,15 @@ class Parser:
             expr = self._expression()
             self._expect(TokenType.RPAREN, "Expected ')' after expression.")
             return expr
+
+        if self._match(TokenType.LBRACKET):
+            bracket = self._previous()
+            items: list = []
+            if not self._check(TokenType.RBRACKET):
+                items.append(self._expression())
+                while self._match(TokenType.COMMA):
+                    items.append(self._expression())
+            self._expect(TokenType.RBRACKET, "Expected ']' after list.")
+            return ListLiteral(items=items, bracket=bracket)
 
         raise self._error(self._peek(), "Expected expression.")

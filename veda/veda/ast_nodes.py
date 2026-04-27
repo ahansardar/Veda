@@ -72,6 +72,7 @@ class WorkDeclaration(Stmt):
 
 @dataclass
 class GiveStatement(Stmt):
+    keyword: Token
     value: Expr
 
 
@@ -110,3 +111,15 @@ class FunctionCall(Expr):
     paren: Token
     arguments: List[Expr]
 
+
+@dataclass
+class ListLiteral(Expr):
+    items: List[Expr]
+    bracket: Token
+
+
+@dataclass
+class IndexExpression(Expr):
+    target: Expr
+    bracket: Token
+    index: Expr

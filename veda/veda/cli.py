@@ -5,17 +5,21 @@ import sys
 from pathlib import Path
 
 from veda.errors import VedaError
+from veda.checker import Checker
 from veda.interpreter import Interpreter
 from veda.lexer import Lexer
 from veda.parser import Parser
 from veda.repl import Repl
 
 
-def run_file(path: Path) -> None:
+def run_file(path: Path, *, args: list[str] | None = None) -> None:
     source = path.read_text(encoding="utf-8")
     tokens = Lexer(source, filename=str(path)).tokenize()
     program = Parser(tokens, source=source, filename=str(path)).parse()
-    Interpreter(source=source, filename=str(path)).run(program)
+    interpreter = Interpreter(source=source, filename=str(path))
+    interpreter.globals.define("args", list(args or []))
+    interpreter.builtin_names.add("args")
+    interpreter.run(program)
 
 
 def check_file(path: Path) -> None:
@@ -23,7 +27,13 @@ def check_file(path: Path) -> None:
     tokens, lex_errors = Lexer(source, filename=str(path)).tokenize_with_errors()
     _, parse_errors = Parser(tokens, source=source, filename=str(path)).parse_with_errors()
     errors = lex_errors + parse_errors
+    if not errors:
+        program, _ = Parser(tokens, source=source, filename=str(path)).parse_with_errors()
+        builtins = Interpreter(source=source, filename=str(path), output=lambda s: None).builtin_names | {"args"}
+        errors.extend(Checker(filename=str(path), source=source, builtin_names=builtins).check(program))
+
     if errors:
+        errors = sorted(errors, key=lambda e: (e.span.line, e.span.column))
         for i, err in enumerate(errors):
             if i:
                 print("\n", file=sys.stderr)
@@ -38,6 +48,7 @@ def main(argv: list[str] | None = None) -> None:
 
     p_run = sub.add_parser("run", help="Run a .veda file")
     p_run.add_argument("file", help="Path to .veda file")
+    p_run.add_argument("args", nargs=argparse.REMAINDER, help="Arguments passed to the program")
 
     p_check = sub.add_parser("check", help="Lex and parse a .veda file")
     p_check.add_argument("file", help="Path to .veda file")
@@ -48,7 +59,7 @@ def main(argv: list[str] | None = None) -> None:
 
     try:
         if args.cmd == "run":
-            run_file(Path(args.file))
+            run_file(Path(args.file), args=args.args)
             return
         if args.cmd == "check":
             check_file(Path(args.file))

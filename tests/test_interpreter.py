@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from veda.errors import VedaNameError
+from veda.errors import VedaNameError, VedaRuntimeError
 from veda.interpreter import Interpreter
 from veda.lexer import Lexer
 from veda.parser import Parser
@@ -90,3 +90,18 @@ def test_runtime_error_for_undefined_variable() -> None:
     interpreter = Interpreter(source=source, filename="test.veda", output=lambda s: None)
     with pytest.raises(VedaNameError):
         interpreter.run(program)
+
+
+def test_lists_and_indexing() -> None:
+    out = run("make a = [1, 2, 3]\nshow a\nshow a[1]\n")
+    assert out == ["[1, 2, 3]", "2"]
+
+
+def test_give_outside_function_is_runtime_error() -> None:
+    source = "give 1\n"
+    tokens = Lexer(source, filename="test.veda").tokenize()
+    program = Parser(tokens, source=source, filename="test.veda").parse()
+    interpreter = Interpreter(source=source, filename="test.veda", output=lambda s: None)
+    with pytest.raises(VedaRuntimeError) as e:
+        interpreter.run(program)
+    assert "give can only be used" in str(e.value)

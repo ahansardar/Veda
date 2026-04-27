@@ -26,6 +26,10 @@ class Repl:
         filename = "<repl>"
         buffer_lines: list[str] = []
         interpreter: Optional[Interpreter] = None
+        self._last_source: str | None = None
+        self._last_filename: str | None = None
+        self._last_tokens = None
+        self._last_program = None
 
         while True:
             prompt = "veda> " if not buffer_lines else "...  "
@@ -52,6 +56,10 @@ class Repl:
 
                 tokens = Lexer(source, filename=filename).tokenize()
                 program = Parser(tokens, source=source, filename=filename).parse()
+                self._last_source = source
+                self._last_filename = filename
+                self._last_tokens = tokens
+                self._last_program = program
 
                 if interpreter is None:
                     interpreter = Interpreter(
@@ -192,6 +200,8 @@ class Repl:
             self.output("  :vars              List global variables")
             self.output("  :reset             Reset REPL environment")
             self.output("  :load <file.veda>  Run a file into the current REPL env")
+            self.output("  :tokens [file]     Show tokens for last input (or a file)")
+            self.output("  :ast [file]        Show AST for last input (or a file)")
             return interpreter
 
         if cmd == ":history":
@@ -249,5 +259,56 @@ class Repl:
                 self.output(e.pretty())
             return interpreter
 
+        if cmd == ":tokens":
+            self._show_tokens(arg)
+            return interpreter
+
+        if cmd == ":ast":
+            self._show_ast(arg)
+            return interpreter
+
         self.output("Unknown command. Try :help")
         return interpreter
+
+    def _show_tokens(self, arg: str) -> None:
+        try:
+            if arg:
+                path = Path(arg).expanduser()
+                if not path.exists():
+                    self.output(f"File not found: {arg}")
+                    return
+                source = path.read_text(encoding="utf-8")
+                tokens = Lexer(source, filename=str(path)).tokenize()
+            else:
+                tokens = self._last_tokens
+                if tokens is None:
+                    self.output("(no previous input)")
+                    return
+
+            for t in tokens:
+                if t.type == TokenType.NEWLINE:
+                    continue
+                self.output(f"{t.line}:{t.column}  {t.type.name:<12} {t.lexeme!r}")
+        except VedaError as e:
+            self.output(e.pretty())
+        return
+
+    def _show_ast(self, arg: str) -> None:
+        try:
+            if arg:
+                path = Path(arg).expanduser()
+                if not path.exists():
+                    self.output(f"File not found: {arg}")
+                    return
+                source = path.read_text(encoding="utf-8")
+                tokens = Lexer(source, filename=str(path)).tokenize()
+                program = Parser(tokens, source=source, filename=str(path)).parse()
+            else:
+                program = self._last_program
+                if program is None:
+                    self.output("(no previous input)")
+                    return
+            self.output(repr(program))
+        except VedaError as e:
+            self.output(e.pretty())
+        return

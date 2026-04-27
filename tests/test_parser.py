@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from veda.ast_nodes import BinaryExpression, Program, VariableDeclaration
+from veda.ast_nodes import BinaryExpression, IndexExpression, ListLiteral, Program, VariableDeclaration
 from veda.lexer import Lexer
 from veda.parser import Parser
 
@@ -32,3 +32,14 @@ def test_parse_with_errors_collects_multiple_errors() -> None:
     program, errors = Parser(tokens, source=source, filename="test.veda").parse_with_errors()
     assert len(errors) == 2
     assert len(program.statements) == 1
+
+
+def test_parsing_list_literal_and_index() -> None:
+    source = "make a = [1, 2, 3]\nshow a[0]\n"
+    program = parse(source)
+    decl = program.statements[0]
+    assert isinstance(decl, VariableDeclaration)
+    assert isinstance(decl.initializer, ListLiteral)
+    show_stmt = program.statements[1]
+    expr = show_stmt.expression  # type: ignore[attr-defined]
+    assert isinstance(expr, IndexExpression)
