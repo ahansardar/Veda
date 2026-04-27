@@ -44,7 +44,7 @@ Key files:
 - Windows quality-of-life:
   - UTF‑8 BOM is ignored in the lexer; error printing hides BOM so caret alignment stays sane.
 
-### Stage 1 (vast)
+### Stage 1
 
 - Data types:
   - `list` literals: `[1, 2, 3]`, indexing `a[0]`, slicing `a[1:3]`, index assignment `a[0] = 99`
