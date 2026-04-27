@@ -36,6 +36,11 @@ def test_interpreting_functions() -> None:
     assert out == ["30"]
 
 
+def test_builtins_text_and_math_helpers() -> None:
+    out = run('show upper("hi")\nshow lower("HI")\nshow trim("  ok  ")\nshow abs(-5)\n')
+    assert out == ["HI", "hi", "ok", "5"]
+
+
 def test_runtime_error_for_undefined_variable() -> None:
     source = "show missing\n"
     tokens = Lexer(source, filename="test.veda").tokenize()
@@ -43,4 +48,3 @@ def test_runtime_error_for_undefined_variable() -> None:
     interpreter = Interpreter(source=source, filename="test.veda", output=lambda s: None)
     with pytest.raises(VedaNameError):
         interpreter.run(program)
-

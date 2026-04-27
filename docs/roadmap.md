@@ -2,12 +2,12 @@
 
 
 
-## Stage 0 (current)
+## Stage 0 
 - Source → lexer → parser → AST → interpreter
 - `veda run`, `veda check`, `veda repl`
 - Error messages include filename + line/column + a pointer
 
-## Stage 1 (make it nicer for learners)
+## Stage 1 
 
 - Better REPL experience (history, multi-line blocks that feel natural)
 - Small standard library (text helpers, math helpers)

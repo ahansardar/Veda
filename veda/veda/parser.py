@@ -39,6 +39,25 @@ class Parser:
             self._skip_newlines()
         return Program(statements=statements)
 
+    def parse_with_errors(self) -> tuple[Program, list[VedaSyntaxError]]:
+        """
+        Best-effort parse used by `veda check`.
+        Returns a partially-built program plus a list of syntax errors.
+        """
+        statements: list = []
+        errors: list[VedaSyntaxError] = []
+
+        self._skip_newlines()
+        while not self._is_at_end():
+            try:
+                statements.append(self._statement())
+            except VedaSyntaxError as e:
+                errors.append(e)
+                self._synchronize()
+            self._skip_newlines()
+
+        return Program(statements=statements), errors
+
     # --- Helpers ---
     def _peek(self) -> Token:
         return self.tokens[self.current]
@@ -110,6 +129,34 @@ class Parser:
         if self._is_at_end() or self._check_keyword("end") or self._check_keyword("else"):
             return
         raise self._error(self._peek(), "Expected end of line after statement.")
+
+    def _synchronize(self) -> None:
+        """
+        Skip tokens until we reach a reasonable statement boundary.
+        This keeps `check` from stopping at the first error.
+        """
+        starters = {
+            "make",
+            "show",
+            "ask",
+            "when",
+            "repeat",
+            "count",
+            "work",
+            "give",
+            "end",
+            "else",
+        }
+
+        while not self._is_at_end():
+            if self.current > 0 and self._previous().type == TokenType.NEWLINE:
+                return
+            if self._peek().type == TokenType.KEYWORD and self._peek().lexeme in starters:
+                return
+            if self._peek().type == TokenType.NEWLINE:
+                self._advance()
+                return
+            self._advance()
 
     # --- Statements ---
     def _statement(self):
@@ -333,4 +380,3 @@ class Parser:
             return expr
 
         raise self._error(self._peek(), "Expected expression.")
-

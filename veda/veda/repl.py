@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import atexit
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Optional
 
 from veda.errors import VedaError
@@ -16,6 +18,8 @@ class Repl:
     input_fn: Callable[[str], str] = input
 
     def run(self) -> None:
+        self._setup_history()
+
         self.output("Veda v1.0 REPL")
         self.output("Type 'exit' to quit.\n")
 
@@ -28,6 +32,22 @@ class Repl:
             line = self.input_fn(prompt)
             if not buffer_lines and line.strip() == "exit":
                 return
+
+            if not buffer_lines and line.strip() in {":help", "help"}:
+                self.output("Commands: exit, :help, :history, :clear")
+                continue
+            if not buffer_lines and line.strip() == ":history":
+                self._print_history()
+                continue
+            if not buffer_lines and line.strip() == ":clear":
+                self._clear_history()
+                continue
+
+            if getattr(self, "_readline", None) is None:
+                if not hasattr(self, "_manual_history"):
+                    self._manual_history = []
+                if line.strip():
+                    self._manual_history.append(line)
 
             buffer_lines.append(line)
             source = "\n".join(buffer_lines) + "\n"
@@ -66,3 +86,60 @@ class Repl:
                 closes += 1
         return max(opens - closes, 0)
 
+    def _setup_history(self) -> None:
+        """
+        Use readline history when available (arrow-key history in many terminals).
+        Falls back gracefully on environments without readline.
+        """
+        try:
+            import readline  # type: ignore
+        except Exception:
+            self._readline = None
+            self._history_file = None
+            self._manual_history: list[str] = []
+            return
+
+        self._readline = readline
+        self._history_file = Path.home() / ".veda_history"
+        try:
+            readline.read_history_file(str(self._history_file))
+        except FileNotFoundError:
+            pass
+        except Exception:
+            # History is a nice-to-have. REPL should still work.
+            self._history_file = None
+
+        atexit.register(self._save_history)
+
+    def _save_history(self) -> None:
+        if getattr(self, "_readline", None) is None:
+            return
+        if getattr(self, "_history_file", None) is None:
+            return
+        try:
+            self._readline.write_history_file(str(self._history_file))
+        except Exception:
+            pass
+
+    def _print_history(self) -> None:
+        if getattr(self, "_readline", None) is not None:
+            n = self._readline.get_current_history_length()
+            start = max(n - 20, 1)
+            for i in range(start, n + 1):
+                item = self._readline.get_history_item(i)
+                if item:
+                    self.output(f"{i}: {item}")
+            return
+        # Manual history (when readline is unavailable)
+        history = getattr(self, "_manual_history", [])
+        for i, item in enumerate(history[-20:], start=max(len(history) - 20, 0) + 1):
+            self.output(f"{i}: {item}")
+
+    def _clear_history(self) -> None:
+        if getattr(self, "_readline", None) is not None:
+            try:
+                self._readline.clear_history()
+            except Exception:
+                pass
+            return
+        self._manual_history = []

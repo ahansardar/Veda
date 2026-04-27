@@ -21,7 +21,14 @@ def run_file(path: Path) -> None:
 def check_file(path: Path) -> None:
     source = path.read_text(encoding="utf-8")
     tokens = Lexer(source, filename=str(path)).tokenize()
-    Parser(tokens, source=source, filename=str(path)).parse()
+    _, errors = Parser(tokens, source=source, filename=str(path)).parse_with_errors()
+    if errors:
+        for i, err in enumerate(errors):
+            if i:
+                print("\n", file=sys.stderr)
+            print(err.pretty(), file=sys.stderr)
+        print(f"\nFound {len(errors)} error(s).", file=sys.stderr)
+        raise SystemExit(1)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -55,4 +62,3 @@ def main(argv: list[str] | None = None) -> None:
     except FileNotFoundError:
         print(f"File not found: {args.file}", file=sys.stderr)
         raise SystemExit(1) from None
-

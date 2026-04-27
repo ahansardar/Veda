@@ -25,3 +25,10 @@ def test_parsing_arithmetic_expression() -> None:
     assert isinstance(expr, BinaryExpression)
     assert expr.operator.lexeme == "+"
 
+
+def test_parse_with_errors_collects_multiple_errors() -> None:
+    source = "make x =\nshow 1 +\nshow \"ok\"\n"
+    tokens = Lexer(source, filename="test.veda").tokenize()
+    program, errors = Parser(tokens, source=source, filename="test.veda").parse_with_errors()
+    assert len(errors) == 2
+    assert len(program.statements) == 1

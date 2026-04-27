@@ -25,6 +25,15 @@ class Lexer:
         while not self._is_at_end():
             ch = self._peek()
 
+            # Some editors on Windows may save UTF-8 with a BOM.
+            # Treat it as invisible whitespace so beginners don't get a confusing error.
+            if ch == "\ufeff":
+                if self._cursor.index == 0 and self._cursor.line == 1 and self._cursor.column == 1:
+                    self._cursor.index += 1
+                else:
+                    self._advance()
+                continue
+
             if ch in " \t\r":
                 self._advance()
                 continue
@@ -303,4 +312,3 @@ class Lexer:
             return
 
         raise self._error(f"Unexpected character '{ch}'.", length=1)
-

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -92,10 +93,59 @@ class Interpreter:
                     raise VedaTypeError("num() could not convert text to number.", source=source, span=span) from e
             raise VedaTypeError("num() expects a number or text.", source=source, span=span)
 
+        def _upper(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if not isinstance(value, str):
+                raise VedaTypeError("upper() expects a text value.", source=source, span=span)
+            return value.upper()
+
+        def _lower(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if not isinstance(value, str):
+                raise VedaTypeError("lower() expects a text value.", source=source, span=span)
+            return value.lower()
+
+        def _trim(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if not isinstance(value, str):
+                raise VedaTypeError("trim() expects a text value.", source=source, span=span)
+            return value.strip()
+
+        def _abs(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise VedaTypeError("abs() expects a number value.", source=source, span=span)
+            return abs(value)
+
+        def _floor(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise VedaTypeError("floor() expects a number value.", source=source, span=span)
+            return math.floor(value)
+
+        def _ceil(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise VedaTypeError("ceil() expects a number value.", source=source, span=span)
+            return math.ceil(value)
+
+        def _round(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise VedaTypeError("round() expects a number value.", source=source, span=span)
+            return round(value)
+
         self.globals.define("len", BuiltinFunction("len", _len, min_arity=1, max_arity=1))
         self.globals.define("type", BuiltinFunction("type", _type, min_arity=1, max_arity=1))
         self.globals.define("text", BuiltinFunction("text", _text, min_arity=1, max_arity=1))
         self.globals.define("num", BuiltinFunction("num", _num, min_arity=1, max_arity=1))
+        self.globals.define("upper", BuiltinFunction("upper", _upper, min_arity=1, max_arity=1))
+        self.globals.define("lower", BuiltinFunction("lower", _lower, min_arity=1, max_arity=1))
+        self.globals.define("trim", BuiltinFunction("trim", _trim, min_arity=1, max_arity=1))
+        self.globals.define("abs", BuiltinFunction("abs", _abs, min_arity=1, max_arity=1))
+        self.globals.define("floor", BuiltinFunction("floor", _floor, min_arity=1, max_arity=1))
+        self.globals.define("ceil", BuiltinFunction("ceil", _ceil, min_arity=1, max_arity=1))
+        self.globals.define("round", BuiltinFunction("round", _round, min_arity=1, max_arity=1))
 
     def run(self, program: Program) -> None:
         for stmt in program.statements:

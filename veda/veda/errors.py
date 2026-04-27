@@ -15,6 +15,8 @@ def format_error(name: str, message: str, source: str, span: SourceSpan) -> str:
     lines = source.splitlines()
     line_index = max(span.line - 1, 0)
     code_line = lines[line_index] if line_index < len(lines) else ""
+    if code_line.startswith("\ufeff"):
+        code_line = code_line[1:]
 
     caret_col = max(span.column, 1)
     pointer = " " * (caret_col - 1) + "^"
@@ -57,4 +59,3 @@ class VedaNameError(VedaRuntimeError):
 
 class VedaTypeError(VedaRuntimeError):
     pass
-

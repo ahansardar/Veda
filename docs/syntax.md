@@ -121,6 +121,13 @@ Truthiness rules:
 - `type(value)` → text (`number`, `text`, `bool`, `none`, `function`)
 - `num(value)` → number (converts text like `"123"` or `"3.14"`)
 - `text(value)` → text
+- `upper(text)` → text
+- `lower(text)` → text
+- `trim(text)` → text
+- `abs(number)` → number
+- `floor(number)` → number
+- `ceil(number)` → number
+- `round(number)` → number
 
 ## Comments
 
