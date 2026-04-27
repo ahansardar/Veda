@@ -116,11 +116,44 @@ def test_text_interpolation() -> None:
     assert out == ["Hello Ahan", "{ok}"]
 
 
+def test_stop_and_next_in_loops() -> None:
+    out = run(
+        "make s = \"\"\n"
+        "count i from 1 to 5 do\n"
+        "    next when i == 2\n"
+        "    s = s + text(i)\n"
+        "    stop when i == 4\n"
+        "end\n"
+        "show s\n"
+    )
+    assert out == ["134"]
+
+
+def test_use_stdlib_module_math() -> None:
+    out = run("use math\nshow math.sqrt(9)\nshow math.pi\n")
+    assert out[0] == "3.0"
+    assert float(out[1]) > 3.14
+
+
+def test_set_bytes_datetime_types() -> None:
+    out = run(
+        'make s = to_set([1, 1, 2])\nshow type(s)\nshow set_has(s, 2)\n'
+        'make b = bytes("hi")\nshow type(b)\nshow utf8(b)\n'
+        "make t = now()\nshow type(t)\nshow len(iso(t)) > 0\n"
+    )
+    assert out[0] == "set"
+    assert out[1] == "true"
+    assert out[2] == "bytes"
+    assert out[3] == "hi"
+    assert out[4] == "datetime"
+    assert out[5] == "true"
+
+
 def test_use_runs_once_with_cache(tmp_path) -> None:
     lib = tmp_path / "lib.veda"
     lib.write_text("make x = 0\nx = x + 1\n", encoding="utf-8")
     main = tmp_path / "main.veda"
-    main.write_text(f'use "{lib.as_posix()}"\nuse "{lib.as_posix()}"\nshow x\n', encoding="utf-8")
+    main.write_text(f'use "{lib.as_posix()}"\nuse "{lib.as_posix()}"\nshow lib.x\n', encoding="utf-8")
 
     source = main.read_text(encoding="utf-8")
     out: list[str] = []

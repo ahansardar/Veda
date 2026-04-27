@@ -17,10 +17,15 @@ from veda.ast_nodes import (
     IndexExpression,
     ListLiteral,
     Literal,
+    MemberExpression,
     Program,
     RepeatStatement,
     SliceExpression,
     ShowStatement,
+    ShareStatement,
+    SliceAssignment,
+    StopStatement,
+    NextStatement,
     UnaryExpression,
     UseStatement,
     VariableDeclaration,
@@ -149,11 +154,19 @@ class Parser:
             "when",
             "repeat",
             "count",
+            "each",
+            "use",
+            "share",
+            "stop",
+            "next",
             "work",
             "give",
             "end",
             "else",
         }
+
+        if not self._is_at_end():
+            self._advance()
 
         while not self._is_at_end():
             if self.current > 0 and self._previous().type == TokenType.NEWLINE:
@@ -178,9 +191,37 @@ class Parser:
             return ShowStatement(expression=expr)
 
         if self._match_keyword("use"):
-            path = self._expect(TokenType.STRING, "Expected a double-quoted path after 'use'.")
+            # `use math` or `use "path.veda"`
+            if self._check(TokenType.IDENTIFIER):
+                spec = self._advance()
+            else:
+                spec = self._expect(TokenType.STRING, "Expected a module name or double-quoted path after 'use'.")
             self._consume_line_end()
-            return UseStatement(path=path)
+            return UseStatement(spec=spec)
+
+        if self._match_keyword("share"):
+            names: list[Token] = []
+            names.append(self._expect(TokenType.IDENTIFIER, "Expected a name after 'share'."))
+            while self._match(TokenType.COMMA):
+                names.append(self._expect(TokenType.IDENTIFIER, "Expected a name after ','."))
+            self._consume_line_end()
+            return ShareStatement(names=names)
+
+        if self._match_keyword("stop"):
+            keyword = self._previous()
+            cond = None
+            if self._match_keyword("when"):
+                cond = self._expression()
+            self._consume_line_end()
+            return StopStatement(keyword=keyword, condition=cond)
+
+        if self._match_keyword("next"):
+            keyword = self._previous()
+            cond = None
+            if self._match_keyword("when"):
+                cond = self._expression()
+            self._consume_line_end()
+            return NextStatement(keyword=keyword, condition=cond)
 
         if self._match_keyword("ask"):
             name = self._expect(TokenType.IDENTIFIER, "Expected variable name after 'ask'.")
@@ -228,13 +269,14 @@ class Parser:
                     value = self._expression()
                     self._consume_line_end()
                     if isinstance(lhs, SliceExpression):
-                        raise self._error(lhs.bracket, "Slice assignment is not supported.")
-                    return IndexAssignment(
-                        target=lhs.target,
-                        bracket=lhs.bracket,
-                        index=lhs.index,
-                        value=value,
-                    )
+                        return SliceAssignment(
+                            target=lhs.target,
+                            bracket=lhs.bracket,
+                            start=lhs.start,
+                            end=lhs.end,
+                            value=value,
+                        )
+                    return IndexAssignment(target=lhs.target, bracket=lhs.bracket, index=lhs.index, value=value)
                 # Not an index assignment; rewind and treat as expression statement.
                 self.current = start
 
@@ -290,6 +332,9 @@ class Parser:
 
     def _each_stmt(self) -> EachStatement:
         name = self._expect(TokenType.IDENTIFIER, "Expected loop variable name after 'each'.")
+        second = None
+        if self._match(TokenType.COMMA):
+            second = self._expect(TokenType.IDENTIFIER, "Expected second loop variable name after ','.")
         self._expect_keyword("in", "Expected 'in' after loop variable.")
         iterable = self._expression()
         self._expect_keyword("do", "Expected 'do' after iterable.")
@@ -297,7 +342,7 @@ class Parser:
         body = self._block(terminators={"end"})
         self._expect_keyword("end", "Expected 'end' to close each block.")
         self._consume_line_end()
-        return EachStatement(name=name, iterable=iterable, body=body)
+        return EachStatement(name=name, second_name=second, iterable=iterable, body=body)
 
     def _work_decl(self) -> WorkDeclaration:
         name = self._expect(TokenType.IDENTIFIER, "Expected function name after 'work'.")
@@ -334,7 +379,7 @@ class Parser:
         while self._match_keyword("or"):
             op = self._previous()
             right = self._logic_and()
-            expr = BinaryExpression(left=expr, operator=op, right=right)
+            expr = self._fold_binary(BinaryExpression(left=expr, operator=op, right=right))
         return expr
 
     def _logic_and(self):
@@ -342,7 +387,7 @@ class Parser:
         while self._match_keyword("and"):
             op = self._previous()
             right = self._equality()
-            expr = BinaryExpression(left=expr, operator=op, right=right)
+            expr = self._fold_binary(BinaryExpression(left=expr, operator=op, right=right))
         return expr
 
     def _equality(self):
@@ -350,7 +395,7 @@ class Parser:
         while self._match(TokenType.EQUAL_EQUAL, TokenType.BANG_EQUAL):
             op = self._previous()
             right = self._comparison()
-            expr = BinaryExpression(left=expr, operator=op, right=right)
+            expr = self._fold_binary(BinaryExpression(left=expr, operator=op, right=right))
         return expr
 
     def _comparison(self):
@@ -363,7 +408,7 @@ class Parser:
         ):
             op = self._previous()
             right = self._term()
-            expr = BinaryExpression(left=expr, operator=op, right=right)
+            expr = self._fold_binary(BinaryExpression(left=expr, operator=op, right=right))
         return expr
 
     def _term(self):
@@ -371,7 +416,7 @@ class Parser:
         while self._match(TokenType.PLUS, TokenType.MINUS):
             op = self._previous()
             right = self._factor()
-            expr = BinaryExpression(left=expr, operator=op, right=right)
+            expr = self._fold_binary(BinaryExpression(left=expr, operator=op, right=right))
         return expr
 
     def _factor(self):
@@ -379,15 +424,65 @@ class Parser:
         while self._match(TokenType.STAR, TokenType.SLASH, TokenType.PERCENT):
             op = self._previous()
             right = self._unary()
-            expr = BinaryExpression(left=expr, operator=op, right=right)
+            expr = self._fold_binary(BinaryExpression(left=expr, operator=op, right=right))
         return expr
 
     def _unary(self):
         if self._match_keyword("not") or self._match(TokenType.MINUS):
             op = self._previous()
             right = self._unary()
-            return UnaryExpression(operator=op, right=right)
+            return self._fold_unary(UnaryExpression(operator=op, right=right))
         return self._call()
+
+    def _fold_unary(self, expr: UnaryExpression):
+        if not isinstance(expr.right, Literal):
+            return expr
+        v = expr.right.value
+        if expr.operator.type == TokenType.MINUS and isinstance(v, (int, float)) and not isinstance(v, bool):
+            return Literal(value=-v, token=expr.operator)
+        if expr.operator.type == TokenType.KEYWORD and expr.operator.lexeme == "not" and isinstance(v, bool):
+            return Literal(value=(not v), token=expr.operator)
+        return expr
+
+    def _fold_binary(self, expr: BinaryExpression):
+        if not isinstance(expr.left, Literal) or not isinstance(expr.right, Literal):
+            return expr
+        a = expr.left.value
+        b = expr.right.value
+        op = expr.operator
+
+        try:
+            if op.type == TokenType.PLUS:
+                if isinstance(a, str) and isinstance(b, str):
+                    return Literal(value=a + b, token=op)
+                if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool) and not isinstance(b, bool):
+                    return Literal(value=a + b, token=op)
+            if op.type == TokenType.MINUS and isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool) and not isinstance(b, bool):
+                return Literal(value=a - b, token=op)
+            if op.type == TokenType.STAR and isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool) and not isinstance(b, bool):
+                return Literal(value=a * b, token=op)
+            if op.type == TokenType.SLASH and isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool) and not isinstance(b, bool):
+                if b != 0:
+                    return Literal(value=a / b, token=op)
+            if op.type == TokenType.PERCENT and isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool) and not isinstance(b, bool):
+                if b != 0:
+                    return Literal(value=a % b, token=op)
+            if op.type == TokenType.EQUAL_EQUAL:
+                return Literal(value=(a == b), token=op)
+            if op.type == TokenType.BANG_EQUAL:
+                return Literal(value=(a != b), token=op)
+            if op.type in (TokenType.GREATER, TokenType.GREATER_EQUAL, TokenType.LESS, TokenType.LESS_EQUAL) and isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool) and not isinstance(b, bool):
+                if op.type == TokenType.GREATER:
+                    return Literal(value=(a > b), token=op)
+                if op.type == TokenType.GREATER_EQUAL:
+                    return Literal(value=(a >= b), token=op)
+                if op.type == TokenType.LESS:
+                    return Literal(value=(a < b), token=op)
+                return Literal(value=(a <= b), token=op)
+        except Exception:
+            return expr
+
+        return expr
 
     def _call(self):
         expr = self._primary()
@@ -427,6 +522,12 @@ class Parser:
                 expr = IndexExpression(target=expr, bracket=bracket, index=start)
                 continue
 
+            if self._match(TokenType.DOT):
+                dot = self._previous()
+                name = self._expect(TokenType.IDENTIFIER, "Expected member name after '.'.")
+                expr = MemberExpression(target=expr, dot=dot, name=name)
+                continue
+
             break
         return expr
 
@@ -446,6 +547,10 @@ class Parser:
         if self._match_keyword("false"):
             tok = self._previous()
             return Literal(value=False, token=tok)
+
+        if self._match_keyword("none"):
+            tok = self._previous()
+            return Literal(value=None, token=tok)
 
         if self._match(TokenType.IDENTIFIER):
             return Identifier(name=self._previous())

@@ -1,0 +1,29 @@
+{
+  "name": "veda-language",
+  "displayName": "Veda Language",
+  "description": "Syntax highlighting for Veda (.veda)",
+  "version": "0.0.1",
+  "publisher": "veda",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "veda",
+        "aliases": ["Veda", "veda"],
+        "extensions": [".veda"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "veda",
+        "scopeName": "source.veda",
+        "path": "./syntaxes/veda.tmLanguage.json"
+      }
+    ]
+  }
+}
+

@@ -11,6 +11,8 @@ Veda is **not** Python syntax — Python is only used to implement the first boo
 - Check syntax: `veda check examples/functions.veda`
 - Use the REPL: `veda repl`
 - Run contributor tests: `veda test`
+- Format Veda code: `veda fmt examples/hello.veda`
+- Lint Veda code: `veda lint examples/hello.veda`
 
 ## Quick start (no install)
 
@@ -36,6 +38,12 @@ Then:
 
 ```bash
 veda run examples/hello.veda
+```
+
+Safe mode (recommended for untrusted scripts):
+
+```bash
+veda run --safe --allow-root . examples/hello.veda
 ```
 
 ## Veda syntax (tiny tour)

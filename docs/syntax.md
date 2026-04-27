@@ -11,8 +11,12 @@ Veda has these runtime types:
 - `bool` (`true` / `false`)
 - `list` (ordered collection)
 - `map` (key/value dictionary; keys are text)
+- `set` (unique collection)
+- `bytes` (raw bytes)
+- `datetime` (date/time value)
 - `none` (returned by functions that don’t `give`)
 - `function` (built-ins and `work` functions)
+  - plus `module` values from `use`
 
 You can ask for a type:
 
@@ -124,6 +128,21 @@ each item in [1, 2, 3] do
 end
 ```
 
+You can also use two loop variables:
+
+- For lists/text: `each index, item in items do ... end`
+- For maps: `each key, value in m do ... end`
+
+Loop control:
+
+```veda
+count i from 1 to 10 do
+    next when i == 2
+    stop when i == 5
+    show i
+end
+```
+
 ## Functions
 
 Define with `work`, return with `give`:
@@ -198,6 +217,21 @@ Truthiness rules:
 - Debug:
   - `panic(message)` → raises a runtime error
 
+- Types:
+  - `bytes(text)` → bytes
+  - `from_hex(text)` → bytes
+  - `to_hex(bytes)` → text
+  - `utf8(bytes)` → text
+  - `now()` → datetime
+  - `iso(datetime)` → text
+  - `parse_time(text)` → datetime
+  - `add_ms(datetime, ms)` → datetime
+  - `diff_ms(a, b)` → number
+  - `to_set(list)` → set
+  - `set_has(set, value)` → bool
+  - `set_add(set, value)` → none
+  - `set_remove(set, value)` → none
+
 Constants:
 
 - `pi`
@@ -265,6 +299,21 @@ Use `use` to execute a file **once** (cached by absolute path):
 
 ```veda
 use "lib.veda"
+```
+
+Or load a built-in stdlib module:
+
+```veda
+use math
+show math.sqrt(9)
+```
+
+Export control (in module files):
+
+```veda
+make secret = 1
+make public = 2
+share public
 ```
 
 If you want to run a file every time, use:

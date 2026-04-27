@@ -44,7 +44,7 @@ Key files:
 - Windows quality-of-life:
   - UTF‑8 BOM is ignored in the lexer; error printing hides BOM so caret alignment stays sane.
 
-### Stage 1
+### Stage 1 (mega)
 
 - Data types:
   - `list` literals: `[1, 2, 3]`, indexing `a[0]`, slicing `a[1:3]`, index assignment `a[0] = 99`
@@ -52,12 +52,23 @@ Key files:
   - Indexing also works on text: `"hello"[1]` and `"hello"[1:4]`
 - Language additions:
   - `each x in iterable do ... end` (iterates lists, text characters, or map keys)
-  - `use "file.veda"` runs another file once (cached); `include("file.veda")` runs every time
+  - `each i, x in list` / `each k, v in map` (2-variable form)
+  - Loop control: `stop` / `next` (optionally `stop when ...`, `next when ...`)
+  - Modules:
+    - `use math` loads a built-in stdlib module (namespaced as `math.sqrt(...)`)
+    - `use "file.veda"` loads a file module once (cached) and binds it by filename stem
+    - `share name` in module files controls exports
+    - Circular import detection
+  - `include("file.veda")` runs a file every time (for side effects / scripting)
   - Text interpolation: `"Hello {name}"` (use `{{` / `}}` for literal braces)
   - Multi-line text: `""" ... """`
 - Standard library (expanded):
   - Lists: `push`, `pop`, `insert`, `remove_at`, `copy`, `reverse`, `sort`, `range`
+  - Higher-order list helpers: `map_values`, `filter`, `reduce`
   - Maps: `keys`, `values`, `has_key`, `get`, `del_key`
+  - Sets: `to_set`, `set_has`, `set_add`, `set_remove`
+  - Bytes: `bytes`, `from_hex`, `to_hex`, `utf8`
+  - Datetime: `now`, `iso`, `parse_time`, `add_ms`, `diff_ms`
   - Text: `split`, `join`, plus earlier helpers like `replace/contains/...`
   - Random + time: `rand`, `randint`, `seed`, `choice`, `shuffle`, `now_ms`, `sleep_ms`
   - Files + paths: `read_file`, `read_lines`, `write_file`, `write_lines`, `append_file`, `exists`, `ls`, `mkdir`,
@@ -69,9 +80,13 @@ Key files:
   - Adds semantic checks (undefined vars, assignment before `make`, `give` outside `work`, builtin arity mistakes, etc.)
 - Errors:
   - Underlines full token spans
-  - Runtime errors include a simple Veda stack trace for function calls
+  - Runtime errors include a Veda stack trace with argument previews and function definition locations
+  - Error codes: `V001` (syntax), `V101` (name), `V201` (type), `V300` (runtime), `V401` (check)
+  - “Did you mean …?” suggestions for common name mistakes
 - Contributor ergonomics:
   - `veda test` runs the Python pytest suite
+  - `veda fmt` (canonical indentation) and `veda lint` (basic style checks)
+  - Safe mode flags for running untrusted scripts: `--safe` + `--allow-root`
   - REPL introspection commands: `:tokens`, `:ast`, `:type`, `:doc`, `:check`, plus `:save`/`:loadenv`
 
 How to try:

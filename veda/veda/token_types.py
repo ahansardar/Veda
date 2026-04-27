@@ -22,6 +22,7 @@ class TokenType(Enum):
     LBRACE = auto()
     RBRACE = auto()
     COLON = auto()
+    DOT = auto()
 
     PLUS = auto()
     MINUS = auto()
@@ -53,12 +54,16 @@ KEYWORDS = {
     "each",
     "in",
     "use",
+    "share",
+    "stop",
+    "next",
     "work",
     "give",
     "end",
     "do",
     "true",
     "false",
+    "none",
     "and",
     "or",
     "not",

@@ -41,3 +41,10 @@ def test_tokenizing_map_braces_and_colon() -> None:
     assert TokenType.LBRACE in kinds
     assert TokenType.RBRACE in kinds
     assert TokenType.COLON in kinds
+
+
+def test_tokenizing_dot_for_members() -> None:
+    source = "use math\nshow math.sqrt(9)\n"
+    tokens = Lexer(source, filename="test.veda").tokenize()
+    kinds = [t.type for t in tokens]
+    assert TokenType.DOT in kinds

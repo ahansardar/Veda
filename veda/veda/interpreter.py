@@ -4,6 +4,7 @@ import math
 import os
 import random
 import time
+from datetime import datetime, timedelta
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -23,10 +24,15 @@ from veda.ast_nodes import (
     IndexExpression,
     ListLiteral,
     Literal,
+    MemberExpression,
     Program,
     RepeatStatement,
     SliceExpression,
     ShowStatement,
+    ShareStatement,
+    SliceAssignment,
+    StopStatement,
+    NextStatement,
     UnaryExpression,
     VariableDeclaration,
     WhenStatement,
@@ -37,6 +43,7 @@ from veda.builtins import BuiltinFunction, to_veda_text, veda_type_name
 from veda.environment import Environment
 from veda.errors import SourceSpan, TraceFrame, VedaNameError, VedaRuntimeError, VedaTypeError
 from veda.lexer import Lexer
+from veda.options import InterpreterOptions
 from veda.parser import Parser
 from veda.token_types import Token, TokenType
 
@@ -46,15 +53,34 @@ class _ReturnSignal(Exception):
         self.value = value
 
 
+class _BreakSignal(Exception):
+    pass
+
+
+class _ContinueSignal(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class VedaFunction:
     name: str
     params: list[str]
     body: list
     closure: Environment
+    decl_span: SourceSpan
 
     def __repr__(self) -> str:
         return f"<work {self.name}>"
+
+
+@dataclass(frozen=True)
+class VedaModule:
+    name: str
+    exports: dict[str, Any]
+    filename: str
+
+    def __repr__(self) -> str:
+        return f"<module {self.name}>"
 
 
 class Interpreter:
@@ -65,11 +91,13 @@ class Interpreter:
         filename: str,
         output: Optional[Callable[[str], None]] = None,
         input_fn: Optional[Callable[[str], str]] = None,
+        options: Optional[InterpreterOptions] = None,
     ):
         self.source = source
         self.filename = filename
         self.output = output or (lambda s: print(s))
         self.input_fn = input_fn or (lambda prompt: input(prompt))
+        self.options = options or InterpreterOptions()
 
         self.globals = Environment(values={})
         self.env = self.globals
@@ -78,6 +106,9 @@ class Interpreter:
         self._used_modules: set[str] = set()
         self._frames: list[TraceFrame] = []
         self._builtin_docs: dict[str, str] = {}
+        self._module_cache: dict[str, VedaModule] = {}
+        self._module_loading: list[str] = []
+        self._module_share: Optional[set[str]] = None
         self._install_builtins()
 
     def _install_builtins(self) -> None:
@@ -111,6 +142,12 @@ class Interpreter:
                 return len(value)
             if isinstance(value, list):
                 return len(value)
+            if isinstance(value, dict):
+                return len(value)
+            if isinstance(value, set):
+                return len(value)
+            if isinstance(value, (bytes, bytearray)):
+                return len(value)
             raise VedaTypeError("len() expects text or list.", source=source, span=span)
 
         def _type(args: list[Any], source: str, span: SourceSpan) -> Any:
@@ -136,6 +173,103 @@ class Interpreter:
                 except ValueError as e:
                     raise VedaTypeError("num() could not convert text to number.", source=source, span=span) from e
             raise VedaTypeError("num() expects a number or text.", source=source, span=span)
+
+        def _bytes(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, (bytes, bytearray)):
+                return bytes(value)
+            if isinstance(value, str):
+                return value.encode("utf-8")
+            raise VedaTypeError("bytes() expects text.", source=source, span=span)
+
+        def _from_hex(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if not isinstance(value, str):
+                raise VedaTypeError("from_hex() expects text.", source=source, span=span)
+            s = value.strip()
+            if s.startswith("0x") or s.startswith("0X"):
+                s = s[2:]
+            try:
+                return bytes.fromhex(s)
+            except Exception as e:
+                raise VedaTypeError("from_hex() expects a valid hex string.", source=source, span=span) from e
+
+        def _to_hex(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if not isinstance(value, (bytes, bytearray)):
+                raise VedaTypeError("to_hex() expects bytes.", source=source, span=span)
+            return bytes(value).hex()
+
+        def _utf8(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if not isinstance(value, (bytes, bytearray)):
+                raise VedaTypeError("utf8() expects bytes.", source=source, span=span)
+            try:
+                return bytes(value).decode("utf-8")
+            except Exception as e:
+                raise VedaTypeError("utf8() could not decode bytes.", source=source, span=span) from e
+
+        def _now(args: list[Any], source: str, span: SourceSpan) -> Any:
+            return datetime.now()
+
+        def _iso(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if not isinstance(value, datetime):
+                raise VedaTypeError("iso() expects datetime.", source=source, span=span)
+            return value.isoformat()
+
+        def _parse_time(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if not isinstance(value, str):
+                raise VedaTypeError("parse_time() expects text.", source=source, span=span)
+            try:
+                return datetime.fromisoformat(value)
+            except Exception as e:
+                raise VedaTypeError("parse_time() expects ISO datetime text.", source=source, span=span) from e
+
+        def _add_ms(args: list[Any], source: str, span: SourceSpan) -> Any:
+            dt, ms = args
+            if not isinstance(dt, datetime):
+                raise VedaTypeError("add_ms() expects datetime as first argument.", source=source, span=span)
+            if isinstance(ms, bool) or not isinstance(ms, (int, float)):
+                raise VedaTypeError("add_ms() expects ms as a number.", source=source, span=span)
+            return dt + timedelta(milliseconds=float(ms))
+
+        def _diff_ms(args: list[Any], source: str, span: SourceSpan) -> Any:
+            a, b = args
+            if not isinstance(a, datetime) or not isinstance(b, datetime):
+                raise VedaTypeError("diff_ms() expects (datetime, datetime).", source=source, span=span)
+            return int((a - b).total_seconds() * 1000)
+
+        def _to_set(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, set):
+                return set(value)
+            if isinstance(value, list):
+                return set(value)
+            raise VedaTypeError("to_set() expects a list.", source=source, span=span)
+
+        def _set_has(args: list[Any], source: str, span: SourceSpan) -> Any:
+            s, v = args
+            if not isinstance(s, set):
+                raise VedaTypeError("set_has() expects a set.", source=source, span=span)
+            return v in s
+
+        def _set_add(args: list[Any], source: str, span: SourceSpan) -> Any:
+            s, v = args
+            if not isinstance(s, set):
+                raise VedaTypeError("set_add() expects a set.", source=source, span=span)
+            s.add(v)
+            return None
+
+        def _set_remove(args: list[Any], source: str, span: SourceSpan) -> Any:
+            s, v = args
+            if not isinstance(s, set):
+                raise VedaTypeError("set_remove() expects a set.", source=source, span=span)
+            if v not in s:
+                raise VedaRuntimeError("Value not found in set.", source=source, span=span)
+            s.remove(v)
+            return None
 
         def _upper(args: list[Any], source: str, span: SourceSpan) -> Any:
             value = args[0]
@@ -186,6 +320,19 @@ class Interpreter:
         self.globals.define("type", BuiltinFunction("type", _type, min_arity=1, max_arity=1))
         self.globals.define("text", BuiltinFunction("text", _text, min_arity=1, max_arity=1))
         self.globals.define("num", BuiltinFunction("num", _num, min_arity=1, max_arity=1))
+        self.globals.define("bytes", BuiltinFunction("bytes", _bytes, min_arity=1, max_arity=1))
+        self.globals.define("from_hex", BuiltinFunction("from_hex", _from_hex, min_arity=1, max_arity=1))
+        self.globals.define("to_hex", BuiltinFunction("to_hex", _to_hex, min_arity=1, max_arity=1))
+        self.globals.define("utf8", BuiltinFunction("utf8", _utf8, min_arity=1, max_arity=1))
+        self.globals.define("now", BuiltinFunction("now", _now, min_arity=0, max_arity=0))
+        self.globals.define("iso", BuiltinFunction("iso", _iso, min_arity=1, max_arity=1))
+        self.globals.define("parse_time", BuiltinFunction("parse_time", _parse_time, min_arity=1, max_arity=1))
+        self.globals.define("add_ms", BuiltinFunction("add_ms", _add_ms, min_arity=2, max_arity=2))
+        self.globals.define("diff_ms", BuiltinFunction("diff_ms", _diff_ms, min_arity=2, max_arity=2))
+        self.globals.define("to_set", BuiltinFunction("to_set", _to_set, min_arity=1, max_arity=1))
+        self.globals.define("set_has", BuiltinFunction("set_has", _set_has, min_arity=2, max_arity=2))
+        self.globals.define("set_add", BuiltinFunction("set_add", _set_add, min_arity=2, max_arity=2))
+        self.globals.define("set_remove", BuiltinFunction("set_remove", _set_remove, min_arity=2, max_arity=2))
         self.globals.define("upper", BuiltinFunction("upper", _upper, min_arity=1, max_arity=1))
         self.globals.define("lower", BuiltinFunction("lower", _lower, min_arity=1, max_arity=1))
         self.globals.define("trim", BuiltinFunction("trim", _trim, min_arity=1, max_arity=1))
@@ -410,6 +557,43 @@ class Interpreter:
                 i += step
             return out
 
+        def _callable_token(span: SourceSpan) -> Token:
+            return Token(TokenType.LPAREN, "(", None, span.filename, span.line, span.column, max(span.length, 1))
+
+        def _map_values(args: list[Any], source: str, span: SourceSpan) -> Any:
+            items, fn = args
+            if not isinstance(items, list):
+                raise VedaTypeError("map_values() expects a list as first argument.", source=source, span=span)
+            if not callable(fn):
+                raise VedaTypeError("map_values() expects a function as second argument.", source=source, span=span)
+            tok = _callable_token(span)
+            return [self._call(fn, [item], tok) for item in items]
+
+        def _filter_list(args: list[Any], source: str, span: SourceSpan) -> Any:
+            items, fn = args
+            if not isinstance(items, list):
+                raise VedaTypeError("filter() expects a list as first argument.", source=source, span=span)
+            if not callable(fn):
+                raise VedaTypeError("filter() expects a function as second argument.", source=source, span=span)
+            tok = _callable_token(span)
+            out: list[Any] = []
+            for item in items:
+                keep = self._call(fn, [item], tok)
+                if self._is_truthy(keep):
+                    out.append(item)
+            return out
+
+        def _reduce_list(args: list[Any], source: str, span: SourceSpan) -> Any:
+            items, fn, acc = args
+            if not isinstance(items, list):
+                raise VedaTypeError("reduce() expects a list as first argument.", source=source, span=span)
+            if not callable(fn):
+                raise VedaTypeError("reduce() expects a function as second argument.", source=source, span=span)
+            tok = _callable_token(span)
+            for item in items:
+                acc = self._call(fn, [acc, item], tok)
+            return acc
+
         def _rand(args: list[Any], source: str, span: SourceSpan) -> Any:
             return random.random()
 
@@ -446,7 +630,8 @@ class Interpreter:
             if not isinstance(path, str):
                 raise VedaTypeError("read_file() expects a text path.", source=source, span=span)
             try:
-                return Path(path).read_text(encoding="utf-8")
+                p = self._safe_path(path, span=span, purpose="read_file")
+                return p.read_text(encoding="utf-8")
             except Exception as e:
                 raise VedaRuntimeError("Could not read file.", source=source, span=span) from e
 
@@ -455,7 +640,8 @@ class Interpreter:
             if not isinstance(path, str):
                 raise VedaTypeError("read_lines() expects a text path.", source=source, span=span)
             try:
-                return Path(path).read_text(encoding="utf-8").splitlines()
+                p = self._safe_path(path, span=span, purpose="read_lines")
+                return p.read_text(encoding="utf-8").splitlines()
             except Exception as e:
                 raise VedaRuntimeError("Could not read lines.", source=source, span=span) from e
 
@@ -464,7 +650,8 @@ class Interpreter:
             if not isinstance(path, str) or not isinstance(text, str):
                 raise VedaTypeError("write_file() expects (text, text).", source=source, span=span)
             try:
-                Path(path).write_text(text, encoding="utf-8")
+                p = self._safe_path(path, span=span, purpose="write_file")
+                p.write_text(text, encoding="utf-8")
             except Exception as e:
                 raise VedaRuntimeError("Could not write file.", source=source, span=span) from e
             return None
@@ -475,7 +662,8 @@ class Interpreter:
                 raise VedaTypeError("write_lines() expects (text, list).", source=source, span=span)
             try:
                 text = "\n".join(to_veda_text(x) for x in lines)
-                Path(path).write_text(text + ("\n" if text else ""), encoding="utf-8")
+                p = self._safe_path(path, span=span, purpose="write_lines")
+                p.write_text(text + ("\n" if text else ""), encoding="utf-8")
             except Exception as e:
                 raise VedaRuntimeError("Could not write lines.", source=source, span=span) from e
             return None
@@ -485,7 +673,8 @@ class Interpreter:
             if not isinstance(path, str) or not isinstance(text, str):
                 raise VedaTypeError("append_file() expects (text, text).", source=source, span=span)
             try:
-                with Path(path).open("a", encoding="utf-8") as f:
+                p = self._safe_path(path, span=span, purpose="append_file")
+                with p.open("a", encoding="utf-8") as f:
                     f.write(text)
             except Exception as e:
                 raise VedaRuntimeError("Could not append to file.", source=source, span=span) from e
@@ -495,13 +684,14 @@ class Interpreter:
             path = args[0]
             if not isinstance(path, str):
                 raise VedaTypeError("exists() expects a text path.", source=source, span=span)
-            return Path(path).exists()
+            p = self._safe_path(path, span=span, purpose="exists")
+            return p.exists()
 
         def _ls(args: list[Any], source: str, span: SourceSpan) -> Any:
             path = args[0]
             if not isinstance(path, str):
                 raise VedaTypeError("ls() expects a text path.", source=source, span=span)
-            p = Path(path)
+            p = self._safe_path(path, span=span, purpose="ls")
             try:
                 return [x.name for x in p.iterdir()]
             except Exception as e:
@@ -512,7 +702,8 @@ class Interpreter:
             if not isinstance(path, str):
                 raise VedaTypeError("mkdir() expects a text path.", source=source, span=span)
             try:
-                Path(path).mkdir(parents=True, exist_ok=True)
+                p = self._safe_path(path, span=span, purpose="mkdir")
+                p.mkdir(parents=True, exist_ok=True)
             except Exception as e:
                 raise VedaRuntimeError("Could not create directory.", source=source, span=span) from e
             return None
@@ -608,6 +799,7 @@ class Interpreter:
             path = Path(path_value)
             if not path.is_absolute() and base is not None:
                 path = base / path
+            path = self._safe_path(str(path), span=span, purpose="include")
 
             try:
                 included_source = path.read_text(encoding="utf-8")
@@ -619,11 +811,18 @@ class Interpreter:
 
             old_source = self.source
             old_filename = self.filename
+            frame = TraceFrame(name=f"include {path.name}", span=span)
+            self._frames.append(frame)
             try:
                 self.source = included_source
                 self.filename = str(path)
                 self.run(program)
+            except VedaRuntimeError as e:
+                if not e.trace:
+                    e.trace = list(self._frames)
+                raise
             finally:
+                self._frames.pop()
                 self.source = old_source
                 self.filename = old_filename
             return None
@@ -645,6 +844,9 @@ class Interpreter:
         self.globals.define("reverse", BuiltinFunction("reverse", _reverse, min_arity=1, max_arity=1))
         self.globals.define("sort", BuiltinFunction("sort", _sort, min_arity=1, max_arity=1))
         self.globals.define("range", BuiltinFunction("range", _range_list, min_arity=2, max_arity=2))
+        self.globals.define("map_values", BuiltinFunction("map_values", _map_values, min_arity=2, max_arity=2))
+        self.globals.define("filter", BuiltinFunction("filter", _filter_list, min_arity=2, max_arity=2))
+        self.globals.define("reduce", BuiltinFunction("reduce", _reduce_list, min_arity=3, max_arity=3))
         self.globals.define("rand", BuiltinFunction("rand", _rand, min_arity=0, max_arity=0))
         self.globals.define("randint", BuiltinFunction("randint", _randint, min_arity=2, max_arity=2))
         self.globals.define("seed", BuiltinFunction("seed", _seed, min_arity=1, max_arity=1))
@@ -691,6 +893,19 @@ class Interpreter:
                 "type",
                 "text",
                 "num",
+                "bytes",
+                "from_hex",
+                "to_hex",
+                "utf8",
+                "now",
+                "iso",
+                "parse_time",
+                "add_ms",
+                "diff_ms",
+                "to_set",
+                "set_has",
+                "set_add",
+                "set_remove",
                 "upper",
                 "lower",
                 "trim",
@@ -715,6 +930,9 @@ class Interpreter:
                 "reverse",
                 "sort",
                 "range",
+                "map_values",
+                "filter",
+                "reduce",
                 "rand",
                 "randint",
                 "seed",
@@ -762,6 +980,19 @@ class Interpreter:
 
     # --- Statements ---
     def _execute(self, stmt) -> None:
+        if isinstance(stmt, UseStatement):
+            module = self._load_module(stmt.spec)
+            self.env.define(module.name, module)
+            return
+
+        if isinstance(stmt, ShareStatement):
+            # Only meaningful while loading a module.
+            if self._module_share is None:
+                return
+            for t in stmt.names:
+                self._module_share.add(t.lexeme)
+            return
+
         if isinstance(stmt, VariableDeclaration):
             value = self._evaluate(stmt.initializer)
             self.env.define(stmt.name.lexeme, value)
@@ -797,6 +1028,32 @@ class Interpreter:
 
             raise VedaTypeError("Can only assign into lists or maps.", source=self.source, span=self._span(stmt.bracket))
 
+        if isinstance(stmt, SliceAssignment):
+            target = self._evaluate(stmt.target)
+            start = None if stmt.start is None else self._evaluate(stmt.start)
+            end = None if stmt.end is None else self._evaluate(stmt.end)
+            value = self._evaluate(stmt.value)
+
+            def _as_int(x: Any | None) -> int | None:
+                if x is None:
+                    return None
+                if isinstance(x, bool) or not isinstance(x, (int, float)):
+                    raise VedaTypeError(
+                        "Slice bounds must be numbers.",
+                        source=self.source,
+                        span=self._span(stmt.bracket),
+                    )
+                return int(x)
+
+            if not isinstance(target, list):
+                raise VedaTypeError("Slice assignment only works on lists.", source=self.source, span=self._span(stmt.bracket))
+            if not isinstance(value, list):
+                raise VedaTypeError("Slice assignment expects a list value.", source=self.source, span=self._span(stmt.bracket))
+
+            s = slice(_as_int(start), _as_int(end))
+            target[s] = value
+            return
+
         if isinstance(stmt, ShowStatement):
             value = self._evaluate(stmt.expression)
             self.output(to_veda_text(value))
@@ -830,8 +1087,13 @@ class Interpreter:
                     span=self._span(self._token_from_expr(stmt.times)),
                 )
             for _ in range(count):
-                for inner in stmt.body:
-                    self._execute(inner)
+                try:
+                    for inner in stmt.body:
+                        self._execute(inner)
+                except _ContinueSignal:
+                    continue
+                except _BreakSignal:
+                    break
             return
 
         if isinstance(stmt, CountStatement):
@@ -845,8 +1107,13 @@ class Interpreter:
             i = start_i
             while True:
                 self.env.define(stmt.name.lexeme, i)
-                for inner in stmt.body:
-                    self._execute(inner)
+                try:
+                    for inner in stmt.body:
+                        self._execute(inner)
+                except _ContinueSignal:
+                    pass
+                except _BreakSignal:
+                    break
                 if i == end_i:
                     break
                 i += step
@@ -854,67 +1121,43 @@ class Interpreter:
 
         if isinstance(stmt, EachStatement):
             iterable = self._evaluate(stmt.iterable)
-            items: list[Any]
-            if isinstance(iterable, list):
-                items = list(iterable)
-            elif isinstance(iterable, str):
-                items = list(iterable)
-            elif isinstance(iterable, dict):
-                items = list(iterable.keys())
-            else:
-                raise VedaTypeError("each expects a list, text, or map.", source=self.source, span=self._span(stmt.name))
-
             previous = self.env
             try:
-                for item in items:
-                    loop_env = Environment(values={}, enclosing=previous)
-                    loop_env.define(stmt.name.lexeme, item)
-                    self.env = loop_env
-                    for inner in stmt.body:
-                        self._execute(inner)
+                if isinstance(iterable, dict):
+                    for k, v in iterable.items():
+                        loop_env = Environment(values={}, enclosing=previous)
+                        loop_env.define(stmt.name.lexeme, k)
+                        if stmt.second_name is not None:
+                            loop_env.define(stmt.second_name.lexeme, v)
+                        self.env = loop_env
+                        try:
+                            for inner in stmt.body:
+                                self._execute(inner)
+                        except _ContinueSignal:
+                            continue
+                        except _BreakSignal:
+                            break
+                    return
+
+                if isinstance(iterable, list) or isinstance(iterable, str):
+                    for idx, item in enumerate(iterable):
+                        loop_env = Environment(values={}, enclosing=previous)
+                        loop_env.define(stmt.name.lexeme, idx if stmt.second_name is not None else item)
+                        if stmt.second_name is not None:
+                            loop_env.define(stmt.second_name.lexeme, item)
+                        self.env = loop_env
+                        try:
+                            for inner in stmt.body:
+                                self._execute(inner)
+                        except _ContinueSignal:
+                            continue
+                        except _BreakSignal:
+                            break
+                    return
+
+                raise VedaTypeError("each expects a list, text, or map.", source=self.source, span=self._span(stmt.name))
             finally:
                 self.env = previous
-            return
-
-        if isinstance(stmt, UseStatement):
-            # `use "file.veda"` executes once per resolved path (simple module cache).
-            raw_path = stmt.path.literal
-            if not isinstance(raw_path, str):
-                raise VedaTypeError("use expects a text path.", source=self.source, span=self._span(stmt.path))
-
-            base: Path | None = None
-            if self.filename and not self.filename.startswith("<"):
-                try:
-                    base = Path(self.filename).resolve().parent
-                except Exception:
-                    base = None
-
-            path = Path(raw_path)
-            if not path.is_absolute() and base is not None:
-                path = base / path
-
-            resolved = str(path.resolve())
-            if resolved in self._used_modules:
-                return
-            self._used_modules.add(resolved)
-
-            try:
-                included_source = path.read_text(encoding="utf-8")
-            except Exception as e:
-                raise VedaRuntimeError("Could not read used file.", source=self.source, span=self._span(stmt.path)) from e
-
-            tokens = Lexer(included_source, filename=str(path)).tokenize()
-            program = Parser(tokens, source=included_source, filename=str(path)).parse()
-
-            old_source = self.source
-            old_filename = self.filename
-            try:
-                self.source = included_source
-                self.filename = str(path)
-                self.run(program)
-            finally:
-                self.source = old_source
-                self.filename = old_filename
             return
 
         if isinstance(stmt, WorkDeclaration):
@@ -923,6 +1166,7 @@ class Interpreter:
                 params=[p.lexeme for p in stmt.params],
                 body=stmt.body,
                 closure=self.env,
+                decl_span=self._span(stmt.name),
             )
             self.env.define(stmt.name.lexeme, func)
             return
@@ -936,6 +1180,16 @@ class Interpreter:
                     span=self._span(stmt.keyword),
                 )
             raise _ReturnSignal(value)
+
+        if isinstance(stmt, StopStatement):
+            if stmt.condition is None or self._is_truthy(self._evaluate(stmt.condition)):
+                raise _BreakSignal()
+            return
+
+        if isinstance(stmt, NextStatement):
+            if stmt.condition is None or self._is_truthy(self._evaluate(stmt.condition)):
+                raise _ContinueSignal()
+            return
 
         if isinstance(stmt, ExpressionStatement):
             self._evaluate(stmt.expression)
@@ -1128,12 +1382,179 @@ class Interpreter:
                 return target[slice(start, end)]
             raise VedaTypeError("Can only slice lists or text.", source=self.source, span=self._span(expr.bracket))
 
+        if isinstance(expr, MemberExpression):
+            target = self._evaluate(expr.target)
+            name = expr.name.lexeme
+            if isinstance(target, VedaModule):
+                if name not in target.exports:
+                    raise VedaRuntimeError(
+                        f"Module '{target.name}' has no member '{name}'.",
+                        source=self.source,
+                        span=self._span(expr.name),
+                    )
+                return target.exports[name]
+            if isinstance(target, dict):
+                if name not in target:
+                    raise VedaRuntimeError(
+                        f"Map has no key '{name}'.",
+                        source=self.source,
+                        span=self._span(expr.name),
+                    )
+                return target[name]
+            raise VedaTypeError("Can only access members on modules or maps.", source=self.source, span=self._span(expr.dot))
+
         raise RuntimeError(f"Unhandled expression: {expr!r}")
+
+    def _load_module(self, spec: Token) -> VedaModule:
+        """
+        Loads a module by name (`use math`) or by path (`use "lib.veda"`).
+        Returns a module value that can be accessed via `module.member`.
+        """
+        if spec.type == TokenType.IDENTIFIER:
+            name = spec.lexeme
+            cache_key = f"stdlib:{name}"
+            if cache_key in self._module_cache:
+                return self._module_cache[cache_key]
+            module = self._load_stdlib_module(name, spec=spec)
+            self._module_cache[cache_key] = module
+            return module
+
+        if spec.type != TokenType.STRING or not isinstance(spec.literal, str):
+            raise VedaTypeError("use expects a module name or text path.", source=self.source, span=self._span(spec))
+
+        raw_path = spec.literal
+        base: Path | None = None
+        if self.filename and not self.filename.startswith("<"):
+            try:
+                base = Path(self.filename).resolve().parent
+            except Exception:
+                base = None
+
+        path = Path(raw_path)
+        if not path.is_absolute() and base is not None:
+            path = base / path
+        path = self._safe_path(str(path), span=self._span(spec), purpose="use")
+
+        resolved = str(path.resolve())
+        cache_key = f"file:{resolved}"
+        if cache_key in self._module_cache:
+            return self._module_cache[cache_key]
+
+        if cache_key in self._module_loading:
+            raise VedaRuntimeError(
+                "Circular module import detected.",
+                source=self.source,
+                span=self._span(spec),
+                trace=list(self._frames),
+            )
+
+        self._module_loading.append(cache_key)
+        frame = TraceFrame(name=f"use {Path(resolved).name}", span=self._span(spec))
+        self._frames.append(frame)
+        try:
+            module = self._load_file_module(path, spec=spec)
+            self._module_cache[cache_key] = module
+            return module
+        finally:
+            self._frames.pop()
+            self._module_loading.pop()
+
+    def _load_file_module(self, path: Path, *, spec: Token) -> VedaModule:
+        try:
+            path = self._safe_path(str(path), span=self._span(spec), purpose="use")
+            module_source = path.read_text(encoding="utf-8")
+        except Exception as e:
+            raise VedaRuntimeError("Could not read module file.", source=self.source, span=self._span(spec)) from e
+
+        tokens = Lexer(module_source, filename=str(path)).tokenize()
+        program = Parser(tokens, source=module_source, filename=str(path)).parse()
+
+        module_env = Environment(values={}, enclosing=self.globals)
+
+        old_env = self.env
+        old_source = self.source
+        old_filename = self.filename
+        old_share = self._module_share
+
+        share: set[str] = set()
+        self._module_share = share
+        try:
+            self.env = module_env
+            self.source = module_source
+            self.filename = str(path)
+            self.run(program)
+        finally:
+            self.env = old_env
+            self.source = old_source
+            self.filename = old_filename
+            self._module_share = old_share
+
+        name = path.stem
+        exports: dict[str, Any] = {}
+        if share:
+            for n in share:
+                if n in module_env.values:
+                    exports[n] = module_env.values[n]
+        else:
+            for n, v in module_env.values.items():
+                if n in self.builtin_names:
+                    continue
+                if n.startswith("_"):
+                    continue
+                exports[n] = v
+
+        return VedaModule(name=name, exports=exports, filename=str(path))
+
+    def _load_stdlib_module(self, name: str, *, spec: Token) -> VedaModule:
+        # Provide a few built-in modules without needing files.
+        exports: dict[str, Any] = {}
+        if name == "math":
+            for key in ("pi", "e", "sqrt", "pow", "min", "max", "clamp", "sin", "cos", "tan", "log", "exp", "abs", "floor", "ceil", "round"):
+                exports[key] = self.globals.values.get(key)
+            return VedaModule(name="math", exports=exports, filename="<stdlib:math>")
+        if name == "text":
+            for key in ("len", "upper", "lower", "trim", "replace", "contains", "starts", "ends", "find", "slice", "split", "join", "repeat_text"):
+                exports[key] = self.globals.values.get(key)
+            return VedaModule(name="text", exports=exports, filename="<stdlib:text>")
+        if name == "random":
+            for key in ("rand", "randint", "seed", "choice", "shuffle"):
+                exports[key] = self.globals.values.get(key)
+            return VedaModule(name="random", exports=exports, filename="<stdlib:random>")
+        if name == "time":
+            for key in ("now_ms", "sleep_ms"):
+                exports[key] = self.globals.values.get(key)
+            return VedaModule(name="time", exports=exports, filename="<stdlib:time>")
+        if name == "fs":
+            for key in (
+                "read_file",
+                "read_lines",
+                "write_file",
+                "write_lines",
+                "append_file",
+                "exists",
+                "ls",
+                "mkdir",
+                "cwd",
+                "path_join",
+                "basename",
+                "dirname",
+            ):
+                exports[key] = self.globals.values.get(key)
+            return VedaModule(name="fs", exports=exports, filename="<stdlib:fs>")
+
+        raise VedaRuntimeError(
+            f"Unknown module '{name}'.",
+            source=self.source,
+            span=self._span(spec),
+        )
 
     def _call(self, callee: Any, args: list[Any], paren: Token) -> Any:
         span = self._span(paren)
         if isinstance(callee, BuiltinFunction):
-            frame = TraceFrame(name=f"{callee.name}()", span=span)
+            shown_args = ", ".join(to_veda_text(a) for a in args[:3])
+            if len(args) > 3:
+                shown_args += ", ..."
+            frame = TraceFrame(name=f"{callee.name}({shown_args})", span=span)
             self._frames.append(frame)
             try:
                 return callee.call(args, source=self.source, span=span)
@@ -1156,7 +1577,14 @@ class Interpreter:
                 local.define(name, value)
 
             previous = self.env
-            frame = TraceFrame(name=f"{callee.name}()", span=span)
+            shown_args = ", ".join(to_veda_text(a) for a in args[:3])
+            if len(args) > 3:
+                shown_args += ", ..."
+            d = callee.decl_span
+            frame = TraceFrame(
+                name=f"{callee.name}({shown_args}) [defined at {d.filename}:{d.line}:{d.column}]",
+                span=span,
+            )
             self._frames.append(frame)
             try:
                 self.env = local
@@ -1188,6 +1616,41 @@ class Interpreter:
         if value == "":
             return False
         return True
+
+    def _safe_path(self, path_value: str, *, span: SourceSpan, purpose: str) -> Path:
+        """
+        Normalizes paths and enforces safe-mode restrictions for file operations.
+        In safe mode, all file paths must be within one of the allowed roots.
+        """
+        p = Path(path_value)
+        if not p.is_absolute():
+            try:
+                p = (Path.cwd() / p).resolve()
+            except Exception:
+                p = Path.cwd() / p
+        else:
+            try:
+                p = p.resolve()
+            except Exception:
+                pass
+
+        if not self.options.safe_mode:
+            return p
+
+        roots = self.options.normalized_roots()
+        try:
+            p_str = str(p)
+            for r in roots:
+                if os.path.commonpath([p_str, str(r)]) == str(r):
+                    return p
+        except Exception:
+            pass
+
+        raise VedaRuntimeError(
+            f"Blocked file access in safe mode for {purpose}: {path_value}",
+            source=self.source,
+            span=span,
+        )
 
     def _interpolate(self, text: str, *, token: Token) -> str:
         """

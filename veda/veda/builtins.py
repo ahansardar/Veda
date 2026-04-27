@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable, Optional
 
 from veda.errors import SourceSpan, VedaTypeError
@@ -19,6 +20,14 @@ def veda_type_name(value: Any) -> str:
         return "list"
     if isinstance(value, dict):
         return "map"
+    if isinstance(value, set):
+        return "set"
+    if isinstance(value, (bytes, bytearray)):
+        return "bytes"
+    if isinstance(value, datetime):
+        return "datetime"
+    if hasattr(value, "__class__") and value.__class__.__name__ == "VedaModule":
+        return "module"
     if callable(value):
         return "function"
     return "unknown"
@@ -39,6 +48,13 @@ def to_veda_text(value: Any) -> str:
         for k, v in value.items():
             parts.append(f"{k}: {to_veda_text(v)}")
         return "{" + ", ".join(parts) + "}"
+    if isinstance(value, set):
+        inner = ", ".join(to_veda_text(v) for v in list(value))
+        return "set([" + inner + "])"
+    if isinstance(value, (bytes, bytearray)):
+        return "0x" + bytes(value).hex()
+    if isinstance(value, datetime):
+        return value.isoformat()
     return str(value)
 
 

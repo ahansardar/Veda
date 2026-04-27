@@ -9,6 +9,7 @@ from typing import Callable, Optional
 from veda.errors import VedaError
 from veda.interpreter import Interpreter
 from veda.lexer import Lexer
+from veda.options import InterpreterOptions
 from veda.parser import Parser
 from veda.token_types import TokenType
 
@@ -17,6 +18,7 @@ from veda.token_types import TokenType
 class Repl:
     output: Callable[[str], None] = print
     input_fn: Callable[[str], str] = input
+    options: Optional[InterpreterOptions] = None
 
     def run(self) -> None:
         self._setup_input_and_history()
@@ -68,6 +70,7 @@ class Repl:
                         filename=filename,
                         output=self.output,
                         input_fn=self.input_fn,
+                        options=self.options,
                     )
                 else:
                     interpreter.source = source
@@ -256,6 +259,7 @@ class Repl:
                         filename=str(path),
                         output=self.output,
                         input_fn=self.input_fn,
+                        options=self.options,
                     )
                 else:
                     interpreter.source = source
@@ -277,7 +281,13 @@ class Repl:
             if not arg:
                 self.output("Usage: :type <expression>")
                 return interpreter
-            interpreter = interpreter or Interpreter(source="", filename="<repl>", output=self.output, input_fn=self.input_fn)
+            interpreter = interpreter or Interpreter(
+                source="",
+                filename="<repl>",
+                output=self.output,
+                input_fn=self.input_fn,
+                options=self.options,
+            )
             self._run_snippet(interpreter, f"show type({arg})\n", filename="<repl:type>")
             return interpreter
 
@@ -285,7 +295,13 @@ class Repl:
             if not arg:
                 self.output("Usage: :doc <name>")
                 return interpreter
-            interpreter = interpreter or Interpreter(source="", filename="<repl>", output=self.output, input_fn=self.input_fn)
+            interpreter = interpreter or Interpreter(
+                source="",
+                filename="<repl>",
+                output=self.output,
+                input_fn=self.input_fn,
+                options=self.options,
+            )
             self._show_doc(interpreter, arg)
             return interpreter
 
@@ -307,7 +323,13 @@ class Repl:
             if not arg:
                 self.output("Usage: :loadenv path/to/file.json")
                 return interpreter
-            interpreter = interpreter or Interpreter(source="", filename="<repl>", output=self.output, input_fn=self.input_fn)
+            interpreter = interpreter or Interpreter(
+                source="",
+                filename="<repl>",
+                output=self.output,
+                input_fn=self.input_fn,
+                options=self.options,
+            )
             self._load_env(interpreter, Path(arg).expanduser())
             return interpreter
 
@@ -427,7 +449,13 @@ class Repl:
 
         if not errors:
             program, _ = Parser(tokens, source=source, filename=filename).parse_with_errors()
-            tmp = interpreter or Interpreter(source=source, filename=filename, output=lambda s: None, input_fn=self.input_fn)
+            tmp = interpreter or Interpreter(
+                source=source,
+                filename=filename,
+                output=lambda s: None,
+                input_fn=self.input_fn,
+                options=self.options,
+            )
             builtin_names = tmp.builtin_names | {"args"}
             builtin_arity: dict[str, tuple[int, int | None]] = {}
             for n, v in tmp.globals.values.items():

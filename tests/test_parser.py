@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from veda.ast_nodes import BinaryExpression, DictLiteral, IndexExpression, ListLiteral, Program, SliceExpression, VariableDeclaration
+from veda.ast_nodes import BinaryExpression, DictLiteral, IndexExpression, ListLiteral, Literal, Program, SliceExpression, VariableDeclaration
 from veda.lexer import Lexer
 from veda.parser import Parser
 
@@ -22,8 +22,12 @@ def test_parsing_arithmetic_expression() -> None:
     program = parse("show 1 + 2 * 3\n")
     show_stmt = program.statements[0]
     expr = show_stmt.expression  # type: ignore[attr-defined]
-    assert isinstance(expr, BinaryExpression)
-    assert expr.operator.lexeme == "+"
+    # Constant folding may reduce this expression to a literal.
+    if isinstance(expr, Literal):
+        assert expr.value == 7
+    else:
+        assert isinstance(expr, BinaryExpression)
+        assert expr.operator.lexeme == "+"
 
 
 def test_parse_with_errors_collects_multiple_errors() -> None:

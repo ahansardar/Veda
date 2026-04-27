@@ -372,6 +372,7 @@ class Lexer:
             "{": TokenType.LBRACE,
             "}": TokenType.RBRACE,
             ":": TokenType.COLON,
+            ".": TokenType.DOT,
             "+": TokenType.PLUS,
             "-": TokenType.MINUS,
             "*": TokenType.STAR,

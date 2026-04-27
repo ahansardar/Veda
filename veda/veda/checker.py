@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+import difflib
+
 from veda.ast_nodes import (
     AskStatement,
     Assignment,
@@ -18,10 +20,15 @@ from veda.ast_nodes import (
     IndexExpression,
     ListLiteral,
     Literal,
+    MemberExpression,
     Program,
     RepeatStatement,
+    ShareStatement,
     ShowStatement,
     SliceExpression,
+    SliceAssignment,
+    StopStatement,
+    NextStatement,
     UnaryExpression,
     UseStatement,
     VariableDeclaration,
@@ -82,12 +89,29 @@ class Checker:
             ),
         )
 
+    def _suggest(self, name: str, choices: Iterable[str]) -> str | None:
+        match = difflib.get_close_matches(name, sorted(set(choices)), n=1)
+        return match[0] if match else None
+
     def _check_statements(self, statements, *, scope: _Scope, in_function: bool, errors: list[VedaCheckError]) -> None:
         for stmt in statements:
             self._check_stmt(stmt, scope=scope, in_function=in_function, errors=errors)
 
     def _check_stmt(self, stmt, *, scope: _Scope, in_function: bool, errors: list[VedaCheckError]) -> None:
         if isinstance(stmt, UseStatement):
+            return
+
+        if isinstance(stmt, ShareStatement):
+            return
+
+        if isinstance(stmt, StopStatement):
+            if stmt.condition is not None:
+                self._check_expr(stmt.condition, scope=scope, errors=errors)
+            return
+
+        if isinstance(stmt, NextStatement):
+            if stmt.condition is not None:
+                self._check_expr(stmt.condition, scope=scope, errors=errors)
             return
 
         if isinstance(stmt, VariableDeclaration):
@@ -97,13 +121,26 @@ class Checker:
 
         if isinstance(stmt, Assignment):
             if stmt.name.lexeme not in scope.defined:
-                errors.append(self._err(stmt.name, f"Assignment to undefined variable '{stmt.name.lexeme}'."))
+                sug = self._suggest(stmt.name.lexeme, scope.defined)
+                msg = f"Assignment to undefined variable '{stmt.name.lexeme}'."
+                if sug:
+                    msg += f" Did you mean '{sug}'?"
+                errors.append(self._err(stmt.name, msg))
             self._check_expr(stmt.value, scope=scope, errors=errors)
             return
 
         if isinstance(stmt, IndexAssignment):
             self._check_expr(stmt.target, scope=scope, errors=errors)
             self._check_expr(stmt.index, scope=scope, errors=errors)
+            self._check_expr(stmt.value, scope=scope, errors=errors)
+            return
+
+        if isinstance(stmt, SliceAssignment):
+            self._check_expr(stmt.target, scope=scope, errors=errors)
+            if stmt.start is not None:
+                self._check_expr(stmt.start, scope=scope, errors=errors)
+            if stmt.end is not None:
+                self._check_expr(stmt.end, scope=scope, errors=errors)
             self._check_expr(stmt.value, scope=scope, errors=errors)
             return
 
@@ -180,6 +217,8 @@ class Checker:
             self._check_expr(stmt.iterable, scope=scope, errors=errors)
             body_scope = scope.copy()
             body_scope.defined.add(stmt.name.lexeme)
+            if stmt.second_name is not None:
+                body_scope.defined.add(stmt.second_name.lexeme)
             self._check_statements(stmt.body, scope=body_scope, in_function=in_function, errors=errors)
             return
 
@@ -192,7 +231,11 @@ class Checker:
             return
         if isinstance(expr, Identifier):
             if expr.name.lexeme not in scope.defined:
-                errors.append(self._err(expr.name, f"Undefined variable '{expr.name.lexeme}'."))
+                sug = self._suggest(expr.name.lexeme, scope.defined)
+                msg = f"Undefined variable '{expr.name.lexeme}'."
+                if sug:
+                    msg += f" Did you mean '{sug}'?"
+                errors.append(self._err(expr.name, msg))
             return
         if isinstance(expr, UnaryExpression):
             self._check_expr(expr.right, scope=scope, errors=errors)
@@ -240,4 +283,7 @@ class Checker:
                 self._check_expr(expr.start, scope=scope, errors=errors)
             if expr.end is not None:
                 self._check_expr(expr.end, scope=scope, errors=errors)
+            return
+        if isinstance(expr, MemberExpression):
+            self._check_expr(expr.target, scope=scope, errors=errors)
             return

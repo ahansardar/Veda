@@ -38,12 +38,23 @@ def format_error(name: str, message: str, source: str, span: SourceSpan) -> str:
 
 
 class VedaError(Exception):
-    def __init__(self, message: str, *, source: str, span: SourceSpan, trace: list[TraceFrame] | None = None):
+    default_code = "V000"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        source: str,
+        span: SourceSpan,
+        trace: list[TraceFrame] | None = None,
+        code: str | None = None,
+    ):
         super().__init__(message)
         self.message = message
         self.source = source
         self.span = span
         self.trace = trace or []
+        self.code = code or self.default_code
 
     @property
     def name(self) -> str:
@@ -58,24 +69,29 @@ class VedaError(Exception):
                     f"  in {frame.name} ({frame.span.filename}:{frame.span.line}:{frame.span.column})"
                 )
             head = "\n".join(lines) + "\n\n"
-        return head + format_error(self.name, self.message, self.source, self.span)
+        return head + format_error(f"{self.name} [{self.code}]", self.message, self.source, self.span)
 
 
 class VedaSyntaxError(VedaError):
+    default_code = "V001"
     pass
 
 
 class VedaRuntimeError(VedaError):
+    default_code = "V300"
     pass
 
 
 class VedaNameError(VedaRuntimeError):
+    default_code = "V101"
     pass
 
 
 class VedaTypeError(VedaRuntimeError):
+    default_code = "V201"
     pass
 
 
 class VedaCheckError(VedaError):
+    default_code = "V401"
     pass
