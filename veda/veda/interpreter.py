@@ -13,24 +13,29 @@ from veda.ast_nodes import (
     Assignment,
     BinaryExpression,
     CountStatement,
+    DictLiteral,
+    EachStatement,
     ExpressionStatement,
     FunctionCall,
     GiveStatement,
     Identifier,
+    IndexAssignment,
     IndexExpression,
     ListLiteral,
     Literal,
     Program,
     RepeatStatement,
+    SliceExpression,
     ShowStatement,
     UnaryExpression,
     VariableDeclaration,
     WhenStatement,
     WorkDeclaration,
+    UseStatement,
 )
 from veda.builtins import BuiltinFunction, to_veda_text, veda_type_name
 from veda.environment import Environment
-from veda.errors import SourceSpan, VedaNameError, VedaRuntimeError, VedaTypeError
+from veda.errors import SourceSpan, TraceFrame, VedaNameError, VedaRuntimeError, VedaTypeError
 from veda.lexer import Lexer
 from veda.parser import Parser
 from veda.token_types import Token, TokenType
@@ -70,9 +75,36 @@ class Interpreter:
         self.env = self.globals
         self.builtin_names: set[str] = set()
         self._call_depth = 0
+        self._used_modules: set[str] = set()
+        self._frames: list[TraceFrame] = []
+        self._builtin_docs: dict[str, str] = {}
         self._install_builtins()
 
     def _install_builtins(self) -> None:
+        self._builtin_docs.update(
+            {
+                "len": "len(text|list) -> number",
+                "type": "type(value) -> text (number/text/bool/list/map/none/function)",
+                "num": "num(text|number) -> number",
+                "text": "text(value) -> text",
+                "upper": "upper(text) -> text",
+                "lower": "lower(text) -> text",
+                "trim": "trim(text) -> text",
+                "replace": "replace(text, old, new) -> text",
+                "contains": "contains(text, part) -> bool",
+                "split": "split(text, sep) -> list",
+                "join": "join(list, sep) -> text",
+                "push": "push(list, value) -> none (mutates)",
+                "pop": "pop(list) -> value",
+                "range": "range(start, end) -> list (inclusive)",
+                "keys": "keys(map) -> list",
+                "values": "values(map) -> list",
+                "get": "get(map, key[, default]) -> value",
+                "read_file": "read_file(path) -> text",
+                "write_file": "write_file(path, text) -> none",
+                "include": "include(path) -> none (runs file every time)",
+            }
+        )
         def _len(args: list[Any], source: str, span: SourceSpan) -> Any:
             value = args[0]
             if isinstance(value, str):
@@ -221,6 +253,38 @@ class Interpreter:
                 raise VedaTypeError("sqrt() cannot take a negative number.", source=source, span=span)
             return math.sqrt(value)
 
+        def _sin(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise VedaTypeError("sin() expects a number.", source=source, span=span)
+            return math.sin(value)
+
+        def _cos(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise VedaTypeError("cos() expects a number.", source=source, span=span)
+            return math.cos(value)
+
+        def _tan(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise VedaTypeError("tan() expects a number.", source=source, span=span)
+            return math.tan(value)
+
+        def _log(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise VedaTypeError("log() expects a number.", source=source, span=span)
+            if value <= 0:
+                raise VedaTypeError("log() expects a positive number.", source=source, span=span)
+            return math.log(value)
+
+        def _exp(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise VedaTypeError("exp() expects a number.", source=source, span=span)
+            return math.exp(value)
+
         def _pow(args: list[Any], source: str, span: SourceSpan) -> Any:
             a, b = args
             if isinstance(a, bool) or not isinstance(a, (int, float)):
@@ -306,6 +370,28 @@ class Interpreter:
                 raise VedaRuntimeError("remove_at() index out of range.", source=source, span=span)
             return items.pop(i)
 
+        def _copy(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, list):
+                return list(value)
+            if isinstance(value, dict):
+                return dict(value)
+            raise VedaTypeError("copy() expects a list or map.", source=source, span=span)
+
+        def _reverse(args: list[Any], source: str, span: SourceSpan) -> Any:
+            items = args[0]
+            if not isinstance(items, list):
+                raise VedaTypeError("reverse() expects a list.", source=source, span=span)
+            items.reverse()
+            return None
+
+        def _sort(args: list[Any], source: str, span: SourceSpan) -> Any:
+            items = args[0]
+            if not isinstance(items, list):
+                raise VedaTypeError("sort() expects a list.", source=source, span=span)
+            items.sort(key=to_veda_text)
+            return None
+
         def _range_list(args: list[Any], source: str, span: SourceSpan) -> Any:
             start, end = args
             if isinstance(start, bool) or not isinstance(start, (int, float)):
@@ -364,6 +450,15 @@ class Interpreter:
             except Exception as e:
                 raise VedaRuntimeError("Could not read file.", source=source, span=span) from e
 
+        def _read_lines(args: list[Any], source: str, span: SourceSpan) -> Any:
+            path = args[0]
+            if not isinstance(path, str):
+                raise VedaTypeError("read_lines() expects a text path.", source=source, span=span)
+            try:
+                return Path(path).read_text(encoding="utf-8").splitlines()
+            except Exception as e:
+                raise VedaRuntimeError("Could not read lines.", source=source, span=span) from e
+
         def _write_file(args: list[Any], source: str, span: SourceSpan) -> Any:
             path, text = args
             if not isinstance(path, str) or not isinstance(text, str):
@@ -374,8 +469,125 @@ class Interpreter:
                 raise VedaRuntimeError("Could not write file.", source=source, span=span) from e
             return None
 
+        def _write_lines(args: list[Any], source: str, span: SourceSpan) -> Any:
+            path, lines = args
+            if not isinstance(path, str) or not isinstance(lines, list):
+                raise VedaTypeError("write_lines() expects (text, list).", source=source, span=span)
+            try:
+                text = "\n".join(to_veda_text(x) for x in lines)
+                Path(path).write_text(text + ("\n" if text else ""), encoding="utf-8")
+            except Exception as e:
+                raise VedaRuntimeError("Could not write lines.", source=source, span=span) from e
+            return None
+
+        def _append_file(args: list[Any], source: str, span: SourceSpan) -> Any:
+            path, text = args
+            if not isinstance(path, str) or not isinstance(text, str):
+                raise VedaTypeError("append_file() expects (text, text).", source=source, span=span)
+            try:
+                with Path(path).open("a", encoding="utf-8") as f:
+                    f.write(text)
+            except Exception as e:
+                raise VedaRuntimeError("Could not append to file.", source=source, span=span) from e
+            return None
+
+        def _exists(args: list[Any], source: str, span: SourceSpan) -> Any:
+            path = args[0]
+            if not isinstance(path, str):
+                raise VedaTypeError("exists() expects a text path.", source=source, span=span)
+            return Path(path).exists()
+
+        def _ls(args: list[Any], source: str, span: SourceSpan) -> Any:
+            path = args[0]
+            if not isinstance(path, str):
+                raise VedaTypeError("ls() expects a text path.", source=source, span=span)
+            p = Path(path)
+            try:
+                return [x.name for x in p.iterdir()]
+            except Exception as e:
+                raise VedaRuntimeError("Could not list directory.", source=source, span=span) from e
+
+        def _mkdir(args: list[Any], source: str, span: SourceSpan) -> Any:
+            path = args[0]
+            if not isinstance(path, str):
+                raise VedaTypeError("mkdir() expects a text path.", source=source, span=span)
+            try:
+                Path(path).mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                raise VedaRuntimeError("Could not create directory.", source=source, span=span) from e
+            return None
+
+        def _path_join(args: list[Any], source: str, span: SourceSpan) -> Any:
+            a, b = args
+            if not isinstance(a, str) or not isinstance(b, str):
+                raise VedaTypeError("path_join() expects (text, text).", source=source, span=span)
+            return str(Path(a) / b)
+
+        def _basename(args: list[Any], source: str, span: SourceSpan) -> Any:
+            path = args[0]
+            if not isinstance(path, str):
+                raise VedaTypeError("basename() expects a text path.", source=source, span=span)
+            return Path(path).name
+
+        def _dirname(args: list[Any], source: str, span: SourceSpan) -> Any:
+            path = args[0]
+            if not isinstance(path, str):
+                raise VedaTypeError("dirname() expects a text path.", source=source, span=span)
+            return str(Path(path).parent)
+
         def _cwd(args: list[Any], source: str, span: SourceSpan) -> Any:
             return os.getcwd()
+
+        def _choice(args: list[Any], source: str, span: SourceSpan) -> Any:
+            items = args[0]
+            if not isinstance(items, list):
+                raise VedaTypeError("choice() expects a list.", source=source, span=span)
+            if not items:
+                raise VedaRuntimeError("choice() on empty list.", source=source, span=span)
+            return random.choice(items)
+
+        def _shuffle(args: list[Any], source: str, span: SourceSpan) -> Any:
+            items = args[0]
+            if not isinstance(items, list):
+                raise VedaTypeError("shuffle() expects a list.", source=source, span=span)
+            random.shuffle(items)
+            return None
+
+        def _keys(args: list[Any], source: str, span: SourceSpan) -> Any:
+            m = args[0]
+            if not isinstance(m, dict):
+                raise VedaTypeError("keys() expects a map.", source=source, span=span)
+            return list(m.keys())
+
+        def _values(args: list[Any], source: str, span: SourceSpan) -> Any:
+            m = args[0]
+            if not isinstance(m, dict):
+                raise VedaTypeError("values() expects a map.", source=source, span=span)
+            return list(m.values())
+
+        def _has_key(args: list[Any], source: str, span: SourceSpan) -> Any:
+            m, key = args
+            if not isinstance(m, dict) or not isinstance(key, str):
+                raise VedaTypeError("has_key() expects (map, text).", source=source, span=span)
+            return key in m
+
+        def _get_key(args: list[Any], source: str, span: SourceSpan) -> Any:
+            if len(args) == 2:
+                m, key = args
+                default = None
+            else:
+                m, key, default = args
+            if not isinstance(m, dict) or not isinstance(key, str):
+                raise VedaTypeError("get() expects (map, text[, default]).", source=source, span=span)
+            return m.get(key, default)
+
+        def _del_key(args: list[Any], source: str, span: SourceSpan) -> Any:
+            m, key = args
+            if not isinstance(m, dict) or not isinstance(key, str):
+                raise VedaTypeError("del_key() expects (map, text).", source=source, span=span)
+            if key not in m:
+                raise VedaRuntimeError("Map key not found.", source=source, span=span)
+            return m.pop(key)
 
         def _panic(args: list[Any], source: str, span: SourceSpan) -> Any:
             msg = args[0]
@@ -429,6 +641,9 @@ class Interpreter:
         self.globals.define("pop", BuiltinFunction("pop", _pop, min_arity=1, max_arity=1))
         self.globals.define("insert", BuiltinFunction("insert", _insert, min_arity=3, max_arity=3))
         self.globals.define("remove_at", BuiltinFunction("remove_at", _remove_at, min_arity=2, max_arity=2))
+        self.globals.define("copy", BuiltinFunction("copy", _copy, min_arity=1, max_arity=1))
+        self.globals.define("reverse", BuiltinFunction("reverse", _reverse, min_arity=1, max_arity=1))
+        self.globals.define("sort", BuiltinFunction("sort", _sort, min_arity=1, max_arity=1))
         self.globals.define("range", BuiltinFunction("range", _range_list, min_arity=2, max_arity=2))
         self.globals.define("rand", BuiltinFunction("rand", _rand, min_arity=0, max_arity=0))
         self.globals.define("randint", BuiltinFunction("randint", _randint, min_arity=2, max_arity=2))
@@ -436,11 +651,32 @@ class Interpreter:
         self.globals.define("now_ms", BuiltinFunction("now_ms", _now_ms, min_arity=0, max_arity=0))
         self.globals.define("sleep_ms", BuiltinFunction("sleep_ms", _sleep_ms, min_arity=1, max_arity=1))
         self.globals.define("read_file", BuiltinFunction("read_file", _read_file, min_arity=1, max_arity=1))
+        self.globals.define("read_lines", BuiltinFunction("read_lines", _read_lines, min_arity=1, max_arity=1))
         self.globals.define("write_file", BuiltinFunction("write_file", _write_file, min_arity=2, max_arity=2))
+        self.globals.define("write_lines", BuiltinFunction("write_lines", _write_lines, min_arity=2, max_arity=2))
+        self.globals.define("append_file", BuiltinFunction("append_file", _append_file, min_arity=2, max_arity=2))
+        self.globals.define("exists", BuiltinFunction("exists", _exists, min_arity=1, max_arity=1))
+        self.globals.define("ls", BuiltinFunction("ls", _ls, min_arity=1, max_arity=1))
+        self.globals.define("mkdir", BuiltinFunction("mkdir", _mkdir, min_arity=1, max_arity=1))
+        self.globals.define("path_join", BuiltinFunction("path_join", _path_join, min_arity=2, max_arity=2))
+        self.globals.define("basename", BuiltinFunction("basename", _basename, min_arity=1, max_arity=1))
+        self.globals.define("dirname", BuiltinFunction("dirname", _dirname, min_arity=1, max_arity=1))
         self.globals.define("cwd", BuiltinFunction("cwd", _cwd, min_arity=0, max_arity=0))
+        self.globals.define("choice", BuiltinFunction("choice", _choice, min_arity=1, max_arity=1))
+        self.globals.define("shuffle", BuiltinFunction("shuffle", _shuffle, min_arity=1, max_arity=1))
+        self.globals.define("keys", BuiltinFunction("keys", _keys, min_arity=1, max_arity=1))
+        self.globals.define("values", BuiltinFunction("values", _values, min_arity=1, max_arity=1))
+        self.globals.define("has_key", BuiltinFunction("has_key", _has_key, min_arity=2, max_arity=2))
+        self.globals.define("get", BuiltinFunction("get", _get_key, min_arity=2, max_arity=3))
+        self.globals.define("del_key", BuiltinFunction("del_key", _del_key, min_arity=2, max_arity=2))
         self.globals.define("panic", BuiltinFunction("panic", _panic, min_arity=1, max_arity=1))
         self.globals.define("include", BuiltinFunction("include", _include, min_arity=1, max_arity=1))
         self.globals.define("sqrt", BuiltinFunction("sqrt", _sqrt, min_arity=1, max_arity=1))
+        self.globals.define("sin", BuiltinFunction("sin", _sin, min_arity=1, max_arity=1))
+        self.globals.define("cos", BuiltinFunction("cos", _cos, min_arity=1, max_arity=1))
+        self.globals.define("tan", BuiltinFunction("tan", _tan, min_arity=1, max_arity=1))
+        self.globals.define("log", BuiltinFunction("log", _log, min_arity=1, max_arity=1))
+        self.globals.define("exp", BuiltinFunction("exp", _exp, min_arity=1, max_arity=1))
         self.globals.define("pow", BuiltinFunction("pow", _pow, min_arity=2, max_arity=2))
         self.globals.define("min", BuiltinFunction("min", _min2, min_arity=2, max_arity=2))
         self.globals.define("max", BuiltinFunction("max", _max2, min_arity=2, max_arity=2))
@@ -475,6 +711,9 @@ class Interpreter:
                 "pop",
                 "insert",
                 "remove_at",
+                "copy",
+                "reverse",
+                "sort",
                 "range",
                 "rand",
                 "randint",
@@ -482,11 +721,32 @@ class Interpreter:
                 "now_ms",
                 "sleep_ms",
                 "read_file",
+                "read_lines",
                 "write_file",
+                "write_lines",
+                "append_file",
+                "exists",
+                "ls",
+                "mkdir",
+                "path_join",
+                "basename",
+                "dirname",
                 "cwd",
+                "choice",
+                "shuffle",
+                "keys",
+                "values",
+                "has_key",
+                "get",
+                "del_key",
                 "panic",
                 "include",
                 "sqrt",
+                "sin",
+                "cos",
+                "tan",
+                "log",
+                "exp",
                 "pow",
                 "min",
                 "max",
@@ -511,6 +771,31 @@ class Interpreter:
             value = self._evaluate(stmt.value)
             self.env.assign(stmt.name.lexeme, value, source=self.source, span=self._span(stmt.name))
             return
+
+        if isinstance(stmt, IndexAssignment):
+            target = self._evaluate(stmt.target)
+            index_val = self._evaluate(stmt.index)
+            value = self._evaluate(stmt.value)
+
+            if isinstance(target, list):
+                if isinstance(index_val, bool) or not isinstance(index_val, (int, float)):
+                    raise VedaTypeError("List index must be a number.", source=self.source, span=self._span(stmt.bracket))
+                i = int(index_val)
+                if i < 0:
+                    i = len(target) + i
+                if i < 0 or i >= len(target):
+                    raise VedaRuntimeError("List index out of range.", source=self.source, span=self._span(stmt.bracket))
+                target[i] = value
+                return
+
+            if isinstance(target, dict):
+                if not isinstance(index_val, str):
+                    raise VedaTypeError("Map index must be text.", source=self.source, span=self._span(stmt.bracket))
+                key = index_val
+                target[key] = value
+                return
+
+            raise VedaTypeError("Can only assign into lists or maps.", source=self.source, span=self._span(stmt.bracket))
 
         if isinstance(stmt, ShowStatement):
             value = self._evaluate(stmt.expression)
@@ -567,6 +852,71 @@ class Interpreter:
                 i += step
             return
 
+        if isinstance(stmt, EachStatement):
+            iterable = self._evaluate(stmt.iterable)
+            items: list[Any]
+            if isinstance(iterable, list):
+                items = list(iterable)
+            elif isinstance(iterable, str):
+                items = list(iterable)
+            elif isinstance(iterable, dict):
+                items = list(iterable.keys())
+            else:
+                raise VedaTypeError("each expects a list, text, or map.", source=self.source, span=self._span(stmt.name))
+
+            previous = self.env
+            try:
+                for item in items:
+                    loop_env = Environment(values={}, enclosing=previous)
+                    loop_env.define(stmt.name.lexeme, item)
+                    self.env = loop_env
+                    for inner in stmt.body:
+                        self._execute(inner)
+            finally:
+                self.env = previous
+            return
+
+        if isinstance(stmt, UseStatement):
+            # `use "file.veda"` executes once per resolved path (simple module cache).
+            raw_path = stmt.path.literal
+            if not isinstance(raw_path, str):
+                raise VedaTypeError("use expects a text path.", source=self.source, span=self._span(stmt.path))
+
+            base: Path | None = None
+            if self.filename and not self.filename.startswith("<"):
+                try:
+                    base = Path(self.filename).resolve().parent
+                except Exception:
+                    base = None
+
+            path = Path(raw_path)
+            if not path.is_absolute() and base is not None:
+                path = base / path
+
+            resolved = str(path.resolve())
+            if resolved in self._used_modules:
+                return
+            self._used_modules.add(resolved)
+
+            try:
+                included_source = path.read_text(encoding="utf-8")
+            except Exception as e:
+                raise VedaRuntimeError("Could not read used file.", source=self.source, span=self._span(stmt.path)) from e
+
+            tokens = Lexer(included_source, filename=str(path)).tokenize()
+            program = Parser(tokens, source=included_source, filename=str(path)).parse()
+
+            old_source = self.source
+            old_filename = self.filename
+            try:
+                self.source = included_source
+                self.filename = str(path)
+                self.run(program)
+            finally:
+                self.source = old_source
+                self.filename = old_filename
+            return
+
         if isinstance(stmt, WorkDeclaration):
             func = VedaFunction(
                 name=stmt.name.lexeme,
@@ -596,6 +946,8 @@ class Interpreter:
     # --- Expressions ---
     def _evaluate(self, expr) -> Any:
         if isinstance(expr, Literal):
+            if isinstance(expr.value, str) and expr.token.type == TokenType.STRING:
+                return self._interpolate(expr.value, token=expr.token)
             return expr.value
 
         if isinstance(expr, Identifier):
@@ -683,18 +1035,33 @@ class Interpreter:
         if isinstance(expr, ListLiteral):
             return [self._evaluate(item) for item in expr.items]
 
+        if isinstance(expr, DictLiteral):
+            out: dict[str, Any] = {}
+            for k_expr, v_expr in expr.pairs:
+                key_val = self._evaluate(k_expr)
+                if not isinstance(key_val, str):
+                    raise VedaTypeError(
+                        "Map keys must be text.",
+                        source=self.source,
+                        span=self._span(expr.brace),
+                    )
+                out[key_val] = self._evaluate(v_expr)
+            return out
+
         if isinstance(expr, IndexExpression):
             target = self._evaluate(expr.target)
             index_val = self._evaluate(expr.index)
-            if isinstance(index_val, bool) or not isinstance(index_val, (int, float)):
-                raise VedaTypeError(
-                    "Index must be a number.",
-                    source=self.source,
-                    span=self._span(expr.bracket),
-                )
-            i = int(index_val)
 
             if isinstance(target, list):
+                if isinstance(index_val, bool) or not isinstance(index_val, (int, float)):
+                    raise VedaTypeError(
+                        "Index must be a number.",
+                        source=self.source,
+                        span=self._span(expr.bracket),
+                    )
+                i = int(index_val)
+                if i < 0:
+                    i = len(target) + i
                 if i < 0 or i >= len(target):
                     raise VedaRuntimeError(
                         "List index out of range.",
@@ -704,6 +1071,15 @@ class Interpreter:
                 return target[i]
 
             if isinstance(target, str):
+                if isinstance(index_val, bool) or not isinstance(index_val, (int, float)):
+                    raise VedaTypeError(
+                        "Index must be a number.",
+                        source=self.source,
+                        span=self._span(expr.bracket),
+                    )
+                i = int(index_val)
+                if i < 0:
+                    i = len(target) + i
                 if i < 0 or i >= len(target):
                     raise VedaRuntimeError(
                         "Text index out of range.",
@@ -712,18 +1088,61 @@ class Interpreter:
                     )
                 return target[i]
 
+            if isinstance(target, dict):
+                if not isinstance(index_val, str):
+                    raise VedaTypeError(
+                        "Map index must be text (use map[\"key\"]).",
+                        source=self.source,
+                        span=self._span(expr.bracket),
+                    )
+                if index_val not in target:
+                    raise VedaRuntimeError(
+                        "Map key not found.",
+                        source=self.source,
+                        span=self._span(expr.bracket),
+                    )
+                return target[index_val]
+
             raise VedaTypeError(
-                "Can only index lists or text.",
+                "Can only index lists, text, or maps.",
                 source=self.source,
                 span=self._span(expr.bracket),
             )
+
+        if isinstance(expr, SliceExpression):
+            target = self._evaluate(expr.target)
+
+            def _as_int(x: Any) -> int:
+                if x is None:
+                    raise AssertionError("internal")
+                if isinstance(x, bool) or not isinstance(x, (int, float)):
+                    raise VedaTypeError("Slice bounds must be numbers.", source=self.source, span=self._span(expr.bracket))
+                return int(x)
+
+            start = None if expr.start is None else _as_int(self._evaluate(expr.start))
+            end = None if expr.end is None else _as_int(self._evaluate(expr.end))
+
+            if isinstance(target, list):
+                return target[slice(start, end)]
+            if isinstance(target, str):
+                return target[slice(start, end)]
+            raise VedaTypeError("Can only slice lists or text.", source=self.source, span=self._span(expr.bracket))
 
         raise RuntimeError(f"Unhandled expression: {expr!r}")
 
     def _call(self, callee: Any, args: list[Any], paren: Token) -> Any:
         span = self._span(paren)
         if isinstance(callee, BuiltinFunction):
-            return callee.call(args, source=self.source, span=span)
+            frame = TraceFrame(name=f"{callee.name}()", span=span)
+            self._frames.append(frame)
+            try:
+                return callee.call(args, source=self.source, span=span)
+            except VedaRuntimeError as e:
+                if not e.trace:
+                    e.trace = list(self._frames)
+                raise
+            finally:
+                self._frames.pop()
 
         if isinstance(callee, VedaFunction):
             if len(args) != len(callee.params):
@@ -737,6 +1156,8 @@ class Interpreter:
                 local.define(name, value)
 
             previous = self.env
+            frame = TraceFrame(name=f"{callee.name}()", span=span)
+            self._frames.append(frame)
             try:
                 self.env = local
                 self._call_depth += 1
@@ -744,9 +1165,14 @@ class Interpreter:
                     self._execute(stmt)
             except _ReturnSignal as r:
                 return r.value
+            except VedaRuntimeError as e:
+                if not e.trace:
+                    e.trace = list(self._frames)
+                raise
             finally:
                 self._call_depth -= 1
                 self.env = previous
+                self._frames.pop()
             return None
 
         raise VedaTypeError("Can only call functions.", source=self.source, span=span)
@@ -762,6 +1188,59 @@ class Interpreter:
         if value == "":
             return False
         return True
+
+    def _interpolate(self, text: str, *, token: Token) -> str:
+        """
+        Simple beginner-friendly interpolation:
+        - "{name}" is replaced with the current value of variable `name`
+        - "{{" becomes "{", "}}" becomes "}"
+        """
+        if "{" not in text:
+            return text
+
+        out: list[str] = []
+        i = 0
+        while i < len(text):
+            ch = text[i]
+            if ch == "{" and i + 1 < len(text) and text[i + 1] == "{":
+                out.append("{")
+                i += 2
+                continue
+            if ch == "}" and i + 1 < len(text) and text[i + 1] == "}":
+                out.append("}")
+                i += 2
+                continue
+            if ch != "{":
+                out.append(ch)
+                i += 1
+                continue
+
+            # placeholder
+            end = text.find("}", i + 1)
+            if end == -1:
+                raise VedaRuntimeError(
+                    "Unclosed '{' in text interpolation.",
+                    source=self.source,
+                    span=self._span(token),
+                )
+            name = text[i + 1 : end].strip()
+            if not name:
+                raise VedaRuntimeError(
+                    "Empty '{}' in text interpolation.",
+                    source=self.source,
+                    span=self._span(token),
+                )
+            if not (name[0].isalpha() or name[0] == "_") or not all(c.isalnum() or c == "_" for c in name):
+                raise VedaRuntimeError(
+                    "Interpolation must be a variable name like {name}.",
+                    source=self.source,
+                    span=self._span(token),
+                )
+            value = self.env.get(name, source=self.source, span=self._span(token))
+            out.append(to_veda_text(value))
+            i = end + 1
+
+        return "".join(out)
 
     def _span(self, token: Token) -> SourceSpan:
         return SourceSpan(

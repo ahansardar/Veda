@@ -10,6 +10,7 @@ Veda is **not** Python syntax — Python is only used to implement the first boo
 - Run a `.veda` file: `veda run examples/hello.veda`
 - Check syntax: `veda check examples/functions.veda`
 - Use the REPL: `veda repl`
+- Run contributor tests: `veda test`
 
 ## Quick start (no install)
 
@@ -23,6 +24,12 @@ python main.py repl
 
 ```bash
 pip install -e .
+```
+
+Optional: install a nicer REPL editor (prompt-toolkit):
+
+```bash
+pip install -e .[repl]
 ```
 
 Then:

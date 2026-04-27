@@ -17,6 +17,8 @@ def veda_type_name(value: Any) -> str:
         return "text"
     if isinstance(value, list):
         return "list"
+    if isinstance(value, dict):
+        return "map"
     if callable(value):
         return "function"
     return "unknown"
@@ -32,6 +34,11 @@ def to_veda_text(value: Any) -> str:
     if isinstance(value, list):
         inner = ", ".join(to_veda_text(v) for v in value)
         return "[" + inner + "]"
+    if isinstance(value, dict):
+        parts = []
+        for k, v in value.items():
+            parts.append(f"{k}: {to_veda_text(v)}")
+        return "{" + ", ".join(parts) + "}"
     return str(value)
 
 

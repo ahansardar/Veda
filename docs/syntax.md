@@ -10,6 +10,7 @@ Veda has these runtime types:
 - `text` (double-quoted strings)
 - `bool` (`true` / `false`)
 - `list` (ordered collection)
+- `map` (key/value dictionary; keys are text)
 - `none` (returned by functions that don’t `give`)
 - `function` (built-ins and `work` functions)
 
@@ -54,6 +55,28 @@ show 10 + 5
 show "Age: " + 18
 ```
 
+## Text interpolation (v1.0)
+
+Text values can embed variables using `{name}`:
+
+```veda
+make name = "Ahan"
+show "Hello {name}"
+```
+
+To write literal braces, use `{{` and `}}`:
+
+```veda
+show "{{ok}}"
+```
+
+Multi-line text is supported with triple quotes:
+
+```veda
+show """Line 1
+Line 2"""
+```
+
 ## Input
 
 `ask` reads text from the user:
@@ -93,6 +116,14 @@ count i from 1 to 5 do
 end
 ```
 
+Iterate over a list, text, or map keys:
+
+```veda
+each item in [1, 2, 3] do
+    show item
+end
+```
+
 ## Functions
 
 Define with `work`, return with `give`:
@@ -118,46 +149,54 @@ Truthiness rules:
 
 ## Built-in functions (v1.0)
 
-- `len(text)` → number (length of a text value)
-- `type(value)` → text (`number`, `text`, `bool`, `none`, `function`)
-- `num(value)` → number (converts text like `"123"` or `"3.14"`)
-- `text(value)` → text
-- `upper(text)` → text
-- `lower(text)` → text
-- `trim(text)` → text
-- `replace(text, old, new)` → text
-- `contains(text, part)` → bool
-- `starts(text, prefix)` → bool
-- `ends(text, suffix)` → bool
-- `find(text, part)` → number (index, or `-1`)
-- `slice(text, start, end)` → text
-- `repeat_text(text, times)` → text
-- `abs(number)` → number
-- `floor(number)` → number
-- `ceil(number)` → number
-- `round(number)` → number
-- `sqrt(number)` → number
-- `pow(a, b)` → number
-- `min(a, b)` → number
-- `max(a, b)` → number
-- `clamp(value, lo, hi)` → number
-- `split(text, sep)` → list
-- `join(list, sep)` → text
-- `push(list, value)` → none (mutates the list)
-- `pop(list)` → value (removes last)
-- `insert(list, index, value)` → none (mutates)
-- `remove_at(list, index)` → value
-- `range(start, end)` → list (inclusive)
-- `rand()` → number (0..1)
-- `randint(lo, hi)` → number
-- `seed(number)` → none
-- `now_ms()` → number
-- `sleep_ms(ms)` → none
-- `read_file(path)` → text
-- `write_file(path, text)` → none
-- `cwd()` → text
-- `panic(message)` → (raises a runtime error)
-- `include(path)` → none (runs another `.veda` file in the current environment)
+- Core:
+  - `len(text|list)` → number
+  - `type(value)` → text (`number`, `text`, `bool`, `list`, `map`, `none`, `function`)
+  - `num(value)` → number
+  - `text(value)` → text
+
+- Text:
+  - `upper`, `lower`, `trim`
+  - `replace(text, old, new)` → text
+  - `contains/starts/ends` → bool
+  - `find(text, part)` → number (index, or `-1`)
+  - `slice(text, start, end)` → text
+  - `split(text, sep)` → list
+  - `join(list, sep)` → text
+  - `repeat_text(text, times)` → text
+
+- Lists:
+  - `push/pop/insert/remove_at` (mutating)
+  - `copy(list)` → list
+  - `reverse(list)` → none (mutates)
+  - `sort(list)` → none (mutates; sorts by text form)
+  - `range(start, end)` → list (inclusive)
+
+- Maps:
+  - `keys(map)` → list
+  - `values(map)` → list
+  - `has_key(map, key)` → bool
+  - `get(map, key[, default])` → value
+  - `del_key(map, key)` → value
+
+- Math:
+  - `abs/floor/ceil/round`
+  - `sqrt`, `pow`, `min`, `max`, `clamp`
+  - `sin`, `cos`, `tan`, `log`, `exp`
+
+- Random + time:
+  - `rand()`, `randint(lo, hi)`, `seed(n)`
+  - `choice(list)`, `shuffle(list)`
+  - `now_ms()`, `sleep_ms(ms)`
+
+- Files + paths:
+  - `read_file`, `read_lines`
+  - `write_file`, `write_lines`, `append_file`
+  - `exists`, `ls`, `mkdir`
+  - `cwd`, `path_join`, `basename`, `dirname`
+
+- Debug:
+  - `panic(message)` → raises a runtime error
 
 Constants:
 
@@ -180,6 +219,20 @@ show a[0]
 show "hello"[1]   # "e"
 ```
 
+Slicing works on lists and text:
+
+```veda
+show a[1:]     # [2, 3]
+show a[:2]     # [1, 2]
+show a[1:2]    # [2]
+```
+
+Index assignment (lists only):
+
+```veda
+a[0] = 99
+```
+
 Mutating helpers:
 
 ```veda
@@ -189,6 +242,35 @@ push(items, "b")
 show items
 show pop(items)
 show items
+```
+
+## Maps (v1.0)
+
+Maps use `{ key: value }` and keys must be text:
+
+```veda
+make m = {"name": "Ahan", "age": 18}
+show m["name"]
+```
+
+You can also assign into a map:
+
+```veda
+m["age"] = 19
+```
+
+## Modules (v1.0)
+
+Use `use` to execute a file **once** (cached by absolute path):
+
+```veda
+use "lib.veda"
+```
+
+If you want to run a file every time, use:
+
+```veda
+include("lib.veda")
 ```
 
 ## Program arguments

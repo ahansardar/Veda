@@ -32,6 +32,14 @@ class Assignment(Stmt):
 
 
 @dataclass
+class IndexAssignment(Stmt):
+    target: Expr
+    bracket: Token
+    index: Expr
+    value: Expr
+
+
+@dataclass
 class ShowStatement(Stmt):
     expression: Expr
 
@@ -61,6 +69,18 @@ class CountStatement(Stmt):
     start: Expr
     end: Expr
     body: List[Stmt]
+
+
+@dataclass
+class EachStatement(Stmt):
+    name: Token
+    iterable: Expr
+    body: List[Stmt]
+
+
+@dataclass
+class UseStatement(Stmt):
+    path: Token
 
 
 @dataclass
@@ -123,3 +143,17 @@ class IndexExpression(Expr):
     target: Expr
     bracket: Token
     index: Expr
+
+
+@dataclass
+class SliceExpression(Expr):
+    target: Expr
+    bracket: Token
+    start: Optional[Expr]
+    end: Optional[Expr]
+
+
+@dataclass
+class DictLiteral(Expr):
+    pairs: List[tuple[Expr, Expr]]
+    brace: Token

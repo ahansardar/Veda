@@ -7,17 +7,22 @@ from veda.ast_nodes import (
     Assignment,
     BinaryExpression,
     CountStatement,
+    DictLiteral,
+    EachStatement,
     ExpressionStatement,
     FunctionCall,
     GiveStatement,
     Identifier,
+    IndexAssignment,
     IndexExpression,
     ListLiteral,
     Literal,
     Program,
     RepeatStatement,
+    SliceExpression,
     ShowStatement,
     UnaryExpression,
+    UseStatement,
     VariableDeclaration,
     WhenStatement,
     WorkDeclaration,
@@ -172,6 +177,11 @@ class Parser:
             self._consume_line_end()
             return ShowStatement(expression=expr)
 
+        if self._match_keyword("use"):
+            path = self._expect(TokenType.STRING, "Expected a double-quoted path after 'use'.")
+            self._consume_line_end()
+            return UseStatement(path=path)
+
         if self._match_keyword("ask"):
             name = self._expect(TokenType.IDENTIFIER, "Expected variable name after 'ask'.")
             self._expect(TokenType.EQUAL, "Expected '=' after variable name.")
@@ -188,6 +198,9 @@ class Parser:
         if self._match_keyword("count"):
             return self._count_stmt()
 
+        if self._match_keyword("each"):
+            return self._each_stmt()
+
         if self._match_keyword("work"):
             return self._work_decl()
 
@@ -197,12 +210,33 @@ class Parser:
             self._consume_line_end()
             return GiveStatement(keyword=keyword, value=value)
 
-        if self._check(TokenType.IDENTIFIER) and self._peek_next().type == TokenType.EQUAL:
-            name = self._advance()
-            self._advance()  # '='
-            value = self._expression()
-            self._consume_line_end()
-            return Assignment(name=name, value=value)
+        if self._check(TokenType.IDENTIFIER):
+            # assignment: IDENTIFIER "=" expression
+            # index assignment: IDENTIFIER "[" ... "]" "=" expression
+            # We speculatively parse the LHS expression to detect index assignment.
+            if self._peek_next().type == TokenType.EQUAL:
+                name = self._advance()
+                self._advance()  # '='
+                value = self._expression()
+                self._consume_line_end()
+                return Assignment(name=name, value=value)
+
+            if self._peek_next().type == TokenType.LBRACKET:
+                start = self.current
+                lhs = self._call()
+                if isinstance(lhs, (IndexExpression, SliceExpression)) and self._match(TokenType.EQUAL):
+                    value = self._expression()
+                    self._consume_line_end()
+                    if isinstance(lhs, SliceExpression):
+                        raise self._error(lhs.bracket, "Slice assignment is not supported.")
+                    return IndexAssignment(
+                        target=lhs.target,
+                        bracket=lhs.bracket,
+                        index=lhs.index,
+                        value=value,
+                    )
+                # Not an index assignment; rewind and treat as expression statement.
+                self.current = start
 
         expr = self._expression()
         self._consume_line_end()
@@ -253,6 +287,17 @@ class Parser:
         self._expect_keyword("end", "Expected 'end' to close count block.")
         self._consume_line_end()
         return CountStatement(name=name, start=start, end=end, body=body)
+
+    def _each_stmt(self) -> EachStatement:
+        name = self._expect(TokenType.IDENTIFIER, "Expected loop variable name after 'each'.")
+        self._expect_keyword("in", "Expected 'in' after loop variable.")
+        iterable = self._expression()
+        self._expect_keyword("do", "Expected 'do' after iterable.")
+        self._skip_newlines()
+        body = self._block(terminators={"end"})
+        self._expect_keyword("end", "Expected 'end' to close each block.")
+        self._consume_line_end()
+        return EachStatement(name=name, iterable=iterable, body=body)
 
     def _work_decl(self) -> WorkDeclaration:
         name = self._expect(TokenType.IDENTIFIER, "Expected function name after 'work'.")
@@ -360,9 +405,26 @@ class Parser:
 
             if self._match(TokenType.LBRACKET):
                 bracket = self._previous()
-                index_expr = self._expression()
+                # index: target[expr]
+                # slice: target[start:end], target[:end], target[start:], target[:]
+                if self._check(TokenType.COLON):
+                    self._advance()
+                    end = None if self._check(TokenType.RBRACKET) else self._expression()
+                    self._expect(TokenType.RBRACKET, "Expected ']' after slice.")
+                    expr = SliceExpression(target=expr, bracket=bracket, start=None, end=end)
+                    continue
+
+                start = None if self._check(TokenType.RBRACKET) else self._expression()
+                if self._match(TokenType.COLON):
+                    end = None if self._check(TokenType.RBRACKET) else self._expression()
+                    self._expect(TokenType.RBRACKET, "Expected ']' after slice.")
+                    expr = SliceExpression(target=expr, bracket=bracket, start=start, end=end)
+                    continue
+
                 self._expect(TokenType.RBRACKET, "Expected ']' after index.")
-                expr = IndexExpression(target=expr, bracket=bracket, index=index_expr)
+                if start is None:
+                    raise self._error(bracket, "Expected index expression.")
+                expr = IndexExpression(target=expr, bracket=bracket, index=start)
                 continue
 
             break
@@ -402,5 +464,21 @@ class Parser:
                     items.append(self._expression())
             self._expect(TokenType.RBRACKET, "Expected ']' after list.")
             return ListLiteral(items=items, bracket=bracket)
+
+        if self._match(TokenType.LBRACE):
+            brace = self._previous()
+            pairs: list[tuple] = []
+            if not self._check(TokenType.RBRACE):
+                key = self._expression()
+                self._expect(TokenType.COLON, "Expected ':' after key in map.")
+                value = self._expression()
+                pairs.append((key, value))
+                while self._match(TokenType.COMMA):
+                    key = self._expression()
+                    self._expect(TokenType.COLON, "Expected ':' after key in map.")
+                    value = self._expression()
+                    pairs.append((key, value))
+            self._expect(TokenType.RBRACE, "Expected '}' after map.")
+            return DictLiteral(pairs=pairs, brace=brace)
 
         raise self._error(self._peek(), "Expected expression.")

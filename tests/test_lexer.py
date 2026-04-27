@@ -32,3 +32,12 @@ def test_tokenizing_list_brackets() -> None:
     kinds = [t.type for t in tokens]
     assert TokenType.LBRACKET in kinds
     assert TokenType.RBRACKET in kinds
+
+
+def test_tokenizing_map_braces_and_colon() -> None:
+    source = 'show {"a": 1}\n'
+    tokens = Lexer(source, filename="test.veda").tokenize()
+    kinds = [t.type for t in tokens]
+    assert TokenType.LBRACE in kinds
+    assert TokenType.RBRACE in kinds
+    assert TokenType.COLON in kinds

@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+import subprocess
 
 from veda.errors import VedaError
+from veda.builtins import BuiltinFunction
 from veda.checker import Checker
 from veda.interpreter import Interpreter
 from veda.lexer import Lexer
@@ -29,8 +31,20 @@ def check_file(path: Path) -> None:
     errors = lex_errors + parse_errors
     if not errors:
         program, _ = Parser(tokens, source=source, filename=str(path)).parse_with_errors()
-        builtins = Interpreter(source=source, filename=str(path), output=lambda s: None).builtin_names | {"args"}
-        errors.extend(Checker(filename=str(path), source=source, builtin_names=builtins).check(program))
+        tmp = Interpreter(source=source, filename=str(path), output=lambda s: None)
+        builtin_names = tmp.builtin_names | {"args"}
+        builtin_arity: dict[str, tuple[int, int | None]] = {}
+        for name, value in tmp.globals.values.items():
+            if isinstance(value, BuiltinFunction):
+                builtin_arity[name] = (value.min_arity, value.max_arity)
+        errors.extend(
+            Checker(
+                filename=str(path),
+                source=source,
+                builtin_names=builtin_names,
+                builtin_arity=builtin_arity,
+            ).check(program)
+        )
 
     if errors:
         errors = sorted(errors, key=lambda e: (e.span.line, e.span.column))
@@ -55,6 +69,9 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("repl", help="Start Veda REPL")
 
+    p_test = sub.add_parser("test", help="Run the Python test suite (pytest)")
+    p_test.add_argument("pytest_args", nargs=argparse.REMAINDER, help="Arguments forwarded to pytest")
+
     args = parser.parse_args(argv)
 
     try:
@@ -68,6 +85,13 @@ def main(argv: list[str] | None = None) -> None:
         if args.cmd == "repl":
             Repl().run()
             return
+        if args.cmd == "test":
+            try:
+                cmd = [sys.executable, "-m", "pytest", *args.pytest_args]
+                raise SystemExit(subprocess.call(cmd)) from None
+            except FileNotFoundError:
+                print("pytest is not installed. Try: python -m pip install pytest", file=sys.stderr)
+                raise SystemExit(1) from None
     except VedaError as e:
         print(e.pretty(), file=sys.stderr)
         raise SystemExit(1) from None

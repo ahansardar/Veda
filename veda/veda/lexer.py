@@ -142,12 +142,19 @@ class Lexer:
         start_line = self._cursor.line
         start_col = self._cursor.column
         start_index = self._cursor.index
-        self._advance()  # opening quote
+        # opening quote(s)
+        self._advance()
+
+        is_triple = False
+        if not self._is_at_end() and self._peek() == '"' and self._peek_next() == '"':
+            is_triple = True
+            self._advance()
+            self._advance()
 
         chars: list[str] = []
         while not self._is_at_end():
             ch = self._peek()
-            if ch == '"':
+            if not is_triple and ch == '"':
                 self._advance()
                 lexeme = self.source[start_index : self._cursor.index]
                 value = self._unescape("".join(chars))
@@ -165,7 +172,26 @@ class Lexer:
                 )
                 return
 
-            if ch == "\n":
+            if is_triple and ch == '"' and self._peek_next() == '"' and self._peek_n(2) == '"':
+                self._advance()
+                self._advance()
+                self._advance()
+                lexeme = self.source[start_index : self._cursor.index]
+                value = self._unescape("".join(chars))
+                self._tokens.append(
+                    Token(
+                        type=TokenType.STRING,
+                        lexeme=lexeme,
+                        literal=value,
+                        filename=self.filename,
+                        line=start_line,
+                        column=start_col,
+                        length=3,
+                    )
+                )
+                return
+
+            if not is_triple and ch == "\n":
                 raise VedaSyntaxError(
                     "Unterminated string literal.",
                     source=self.source,
@@ -176,6 +202,11 @@ class Lexer:
                         length=1,
                     ),
                 )
+
+            if is_triple and ch == "\n":
+                chars.append("\n")
+                self._advance_line()
+                continue
 
             chars.append(self._advance())
 
@@ -189,6 +220,10 @@ class Lexer:
                 length=1,
             ),
         )
+
+    def _peek_n(self, n: int) -> str:
+        idx = self._cursor.index + n
+        return self.source[idx] if idx < len(self.source) else "\0"
 
     def _recover_from_error(self) -> None:
         """
@@ -334,6 +369,9 @@ class Lexer:
             ",": TokenType.COMMA,
             "[": TokenType.LBRACKET,
             "]": TokenType.RBRACKET,
+            "{": TokenType.LBRACE,
+            "}": TokenType.RBRACE,
+            ":": TokenType.COLON,
             "+": TokenType.PLUS,
             "-": TokenType.MINUS,
             "*": TokenType.STAR,

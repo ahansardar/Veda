@@ -11,6 +11,12 @@ class SourceSpan:
     length: int = 1
 
 
+@dataclass(frozen=True)
+class TraceFrame:
+    name: str
+    span: SourceSpan
+
+
 def format_error(name: str, message: str, source: str, span: SourceSpan) -> str:
     lines = source.splitlines()
     line_index = max(span.line - 1, 0)
@@ -32,18 +38,27 @@ def format_error(name: str, message: str, source: str, span: SourceSpan) -> str:
 
 
 class VedaError(Exception):
-    def __init__(self, message: str, *, source: str, span: SourceSpan):
+    def __init__(self, message: str, *, source: str, span: SourceSpan, trace: list[TraceFrame] | None = None):
         super().__init__(message)
         self.message = message
         self.source = source
         self.span = span
+        self.trace = trace or []
 
     @property
     def name(self) -> str:
         return self.__class__.__name__
 
     def pretty(self) -> str:
-        return format_error(self.name, self.message, self.source, self.span)
+        head = ""
+        if self.trace:
+            lines = ["Veda stack trace (most recent call last):"]
+            for frame in self.trace:
+                lines.append(
+                    f"  in {frame.name} ({frame.span.filename}:{frame.span.line}:{frame.span.column})"
+                )
+            head = "\n".join(lines) + "\n\n"
+        return head + format_error(self.name, self.message, self.source, self.span)
 
 
 class VedaSyntaxError(VedaError):

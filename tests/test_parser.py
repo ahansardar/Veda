@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from veda.ast_nodes import BinaryExpression, IndexExpression, ListLiteral, Program, VariableDeclaration
+from veda.ast_nodes import BinaryExpression, DictLiteral, IndexExpression, ListLiteral, Program, SliceExpression, VariableDeclaration
 from veda.lexer import Lexer
 from veda.parser import Parser
 
@@ -43,3 +43,14 @@ def test_parsing_list_literal_and_index() -> None:
     show_stmt = program.statements[1]
     expr = show_stmt.expression  # type: ignore[attr-defined]
     assert isinstance(expr, IndexExpression)
+
+
+def test_parsing_slice_and_map_literal() -> None:
+    source = 'make m = {"a": 1}\nshow [1, 2, 3][1:]\n'
+    program = parse(source)
+    decl = program.statements[0]
+    assert isinstance(decl, VariableDeclaration)
+    assert isinstance(decl.initializer, DictLiteral)
+    show_stmt = program.statements[1]
+    expr = show_stmt.expression  # type: ignore[attr-defined]
+    assert isinstance(expr, SliceExpression)

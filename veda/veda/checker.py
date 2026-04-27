@@ -8,17 +8,22 @@ from veda.ast_nodes import (
     Assignment,
     BinaryExpression,
     CountStatement,
+    DictLiteral,
+    EachStatement,
     ExpressionStatement,
     FunctionCall,
     GiveStatement,
     Identifier,
+    IndexAssignment,
     IndexExpression,
     ListLiteral,
     Literal,
     Program,
     RepeatStatement,
     ShowStatement,
+    SliceExpression,
     UnaryExpression,
+    UseStatement,
     VariableDeclaration,
     WhenStatement,
     WorkDeclaration,
@@ -46,10 +51,18 @@ class Checker:
     without implementing a full dataflow/CFG analysis.
     """
 
-    def __init__(self, *, filename: str, source: str, builtin_names: Iterable[str] = ()):
+    def __init__(
+        self,
+        *,
+        filename: str,
+        source: str,
+        builtin_names: Iterable[str] = (),
+        builtin_arity: dict[str, tuple[int, int | None]] | None = None,
+    ):
         self.filename = filename
         self.source = source
         self.builtin_names = set(builtin_names)
+        self.builtin_arity = builtin_arity or {}
 
     def check(self, program: Program) -> list[VedaCheckError]:
         errors: list[VedaCheckError] = []
@@ -74,6 +87,9 @@ class Checker:
             self._check_stmt(stmt, scope=scope, in_function=in_function, errors=errors)
 
     def _check_stmt(self, stmt, *, scope: _Scope, in_function: bool, errors: list[VedaCheckError]) -> None:
+        if isinstance(stmt, UseStatement):
+            return
+
         if isinstance(stmt, VariableDeclaration):
             self._check_expr(stmt.initializer, scope=scope, errors=errors)
             scope.defined.add(stmt.name.lexeme)
@@ -82,6 +98,12 @@ class Checker:
         if isinstance(stmt, Assignment):
             if stmt.name.lexeme not in scope.defined:
                 errors.append(self._err(stmt.name, f"Assignment to undefined variable '{stmt.name.lexeme}'."))
+            self._check_expr(stmt.value, scope=scope, errors=errors)
+            return
+
+        if isinstance(stmt, IndexAssignment):
+            self._check_expr(stmt.target, scope=scope, errors=errors)
+            self._check_expr(stmt.index, scope=scope, errors=errors)
             self._check_expr(stmt.value, scope=scope, errors=errors)
             return
 
@@ -104,8 +126,24 @@ class Checker:
         if isinstance(stmt, WorkDeclaration):
             scope.defined.add(stmt.name.lexeme)
             inner = _Scope(defined=set(scope.defined))
+            seen: set[str] = set()
             for p in stmt.params:
+                if p.lexeme in seen:
+                    errors.append(self._err(p, f"Duplicate parameter name '{p.lexeme}'."))
+                seen.add(p.lexeme)
                 inner.defined.add(p.lexeme)
+
+            # Unreachable code after give (simple linear check).
+            returned = False
+            for s in stmt.body:
+                if returned:
+                    # keep the message gentle; this is for learners.
+                    token = getattr(s, "name", None) or getattr(s, "keyword", None) or stmt.name
+                    errors.append(self._err(token, "Unreachable code after give."))  # type: ignore[arg-type]
+                    break
+                if isinstance(s, GiveStatement):
+                    returned = True
+
             self._check_statements(stmt.body, scope=inner, in_function=True, errors=errors)
             return
 
@@ -138,6 +176,13 @@ class Checker:
             self._check_statements(stmt.body, scope=body_scope, in_function=in_function, errors=errors)
             return
 
+        if isinstance(stmt, EachStatement):
+            self._check_expr(stmt.iterable, scope=scope, errors=errors)
+            body_scope = scope.copy()
+            body_scope.defined.add(stmt.name.lexeme)
+            self._check_statements(stmt.body, scope=body_scope, in_function=in_function, errors=errors)
+            return
+
         if isinstance(stmt, ExpressionStatement):
             self._check_expr(stmt.expression, scope=scope, errors=errors)
             return
@@ -160,12 +205,39 @@ class Checker:
             self._check_expr(expr.callee, scope=scope, errors=errors)
             for a in expr.arguments:
                 self._check_expr(a, scope=scope, errors=errors)
+
+            # Builtin arity check (only when calling by name, e.g. len(x)).
+            if isinstance(expr.callee, Identifier):
+                name = expr.callee.name.lexeme
+                if name in self.builtin_arity:
+                    min_a, max_a = self.builtin_arity[name]
+                    got = len(expr.arguments)
+                    if got < min_a or (max_a is not None and got > max_a):
+                        if max_a is None:
+                            msg = f"{name}() expects at least {min_a} argument(s), got {got}."
+                        elif min_a == max_a:
+                            msg = f"{name}() expects {min_a} argument(s), got {got}."
+                        else:
+                            msg = f"{name}() expects {min_a}..{max_a} argument(s), got {got}."
+                        errors.append(self._err(expr.paren, msg))
             return
         if isinstance(expr, ListLiteral):
             for item in expr.items:
                 self._check_expr(item, scope=scope, errors=errors)
             return
+        if isinstance(expr, DictLiteral):
+            for k, v in expr.pairs:
+                self._check_expr(k, scope=scope, errors=errors)
+                self._check_expr(v, scope=scope, errors=errors)
+            return
         if isinstance(expr, IndexExpression):
             self._check_expr(expr.target, scope=scope, errors=errors)
             self._check_expr(expr.index, scope=scope, errors=errors)
+            return
+        if isinstance(expr, SliceExpression):
+            self._check_expr(expr.target, scope=scope, errors=errors)
+            if expr.start is not None:
+                self._check_expr(expr.start, scope=scope, errors=errors)
+            if expr.end is not None:
+                self._check_expr(expr.end, scope=scope, errors=errors)
             return

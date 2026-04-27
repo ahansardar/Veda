@@ -96,6 +96,40 @@ def test_lists_and_indexing() -> None:
     out = run("make a = [1, 2, 3]\nshow a\nshow a[1]\n")
     assert out == ["[1, 2, 3]", "2"]
 
+def test_slicing_and_maps() -> None:
+    out = run('make t = "hello"\nshow t[1:4]\nmake m = {"a": 10}\nshow m["a"]\n')
+    assert out == ["ell", "10"]
+
+
+def test_index_assignment() -> None:
+    out = run("make a = [1, 2, 3]\na[0] = 9\nshow a\nmake m = {\"k\": 1}\nm[\"k\"] = 7\nshow m[\"k\"]\n")
+    assert out == ["[9, 2, 3]", "7"]
+
+
+def test_each_loop_over_list_and_text() -> None:
+    out = run('make s = ""\nmake items = ["a", "b"]\neach x in items do\n    s = s + x\nend\nshow s\neach c in "hi" do\n    show c\nend\n')
+    assert out == ["ab", "h", "i"]
+
+
+def test_text_interpolation() -> None:
+    out = run('make name = "Ahan"\nshow "Hello {name}"\nshow "{{ok}}"\n')
+    assert out == ["Hello Ahan", "{ok}"]
+
+
+def test_use_runs_once_with_cache(tmp_path) -> None:
+    lib = tmp_path / "lib.veda"
+    lib.write_text("make x = 0\nx = x + 1\n", encoding="utf-8")
+    main = tmp_path / "main.veda"
+    main.write_text(f'use "{lib.as_posix()}"\nuse "{lib.as_posix()}"\nshow x\n', encoding="utf-8")
+
+    source = main.read_text(encoding="utf-8")
+    out: list[str] = []
+    tokens = Lexer(source, filename=str(main)).tokenize()
+    program = Parser(tokens, source=source, filename=str(main)).parse()
+    interpreter = Interpreter(source=source, filename=str(main), output=out.append)
+    interpreter.run(program)
+    assert out == ["1"]
+
 
 def test_give_outside_function_is_runtime_error() -> None:
     source = "give 1\n"

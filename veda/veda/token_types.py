@@ -19,6 +19,9 @@ class TokenType(Enum):
     COMMA = auto()
     LBRACKET = auto()
     RBRACKET = auto()
+    LBRACE = auto()
+    RBRACE = auto()
+    COLON = auto()
 
     PLUS = auto()
     MINUS = auto()
@@ -47,6 +50,9 @@ KEYWORDS = {
     "count",
     "from",
     "to",
+    "each",
+    "in",
+    "use",
     "work",
     "give",
     "end",
