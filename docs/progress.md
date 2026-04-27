@@ -44,7 +44,7 @@ Key files:
 - Windows quality-of-life:
   - UTF‑8 BOM is ignored in the lexer; error printing hides BOM so caret alignment stays sane.
 
-### Stage 1 (extended): “don’t limit ourselves”
+### Stage 1
 
 - Added a first real collection type: `list`
   - List literals: `[1, 2, 3]`
