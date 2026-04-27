@@ -55,6 +55,8 @@ show add(10, 20)
 
 More: `docs/syntax.md`
 
+Progress updates: `docs/progress.md`
+
 ## Repo layout
 
 ```
