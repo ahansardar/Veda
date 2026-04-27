@@ -1,17 +1,31 @@
-# VS Code support (local)
+﻿# VS Code support
 
-This folder contains a minimal VS Code language extension scaffold for Veda:
+This folder contains a VS Code language extension for Veda:
 
 - Syntax highlighting (TextMate grammar)
 - Bracket + comment configuration
+- Snippets for common Veda constructs
+- Optional file icons (for `.veda`)
 
-It’s intentionally lightweight and kept inside the repo so collaborators can iterate quickly.
+It’s kept inside the repo so collaborators can iterate quickly.
 
 ## Use locally
 
-1. Open VS Code
-2. `Extensions` → `...` → **Install from VSIX** (optional) — or use the “Extension Development Host” workflow:
-3. `Run and Debug` → `Run Extension`
+### Option A: Install a packaged `.vsix`
 
-If you just want highlighting without packaging, you can also manually copy this folder into a separate VS Code extension workspace.
+1. Build a VSIX (from repo root):
+   - `cd tools/vscode`
+   - `./package.ps1` (writes to `dist/veda-language-<version>.vsix`)
+2. In VS Code: Extensions → `...` → **Install from VSIX…**
 
+### Option B: Run in Extension Development Host
+
+1. Open `tools/vscode` in VS Code
+2. Run and Debug → **Run Extension**
+
+## Enable the `.veda` file icon
+
+VS Code only shows file icons when a file icon theme is active.
+
+1. Command Palette → **Preferences: File Icon Theme**
+2. Choose **Veda Icons**

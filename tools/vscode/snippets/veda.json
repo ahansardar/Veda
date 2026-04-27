@@ -1,0 +1,48 @@
+{
+  "make": {
+    "prefix": "make",
+    "body": ["make ${1:name} = ${2:value}"],
+    "description": "Declare a variable"
+  },
+  "show": {
+    "prefix": "show",
+    "body": ["show ${1:value}"],
+    "description": "Print a value"
+  },
+  "ask": {
+    "prefix": "ask",
+    "body": ["ask ${1:name} = \"${2:Prompt: }\""],
+    "description": "Read input into a variable"
+  },
+  "when/else": {
+    "prefix": "when",
+    "body": ["when ${1:condition} do", "    ${2:# body}", "else do", "    ${3:# else}", "end"],
+    "description": "Conditional block"
+  },
+  "repeat": {
+    "prefix": "repeat",
+    "body": ["repeat ${1:times} times do", "    ${2:# body}", "end"],
+    "description": "Repeat loop"
+  },
+  "count": {
+    "prefix": "count",
+    "body": ["count ${1:i} from ${2:1} to ${3:10} do", "    ${4:# body}", "end"],
+    "description": "Counting loop"
+  },
+  "each": {
+    "prefix": "each",
+    "body": ["each ${1:item} in ${2:items} do", "    ${3:# body}", "end"],
+    "description": "For-each loop"
+  },
+  "work": {
+    "prefix": "work",
+    "body": ["work ${1:name}(${2:args}) do", "    ${3:give none}", "end"],
+    "description": "Function declaration"
+  },
+  "use": {
+    "prefix": "use",
+    "body": ["use ${1:math}"],
+    "description": "Import a module"
+  }
+}
+

@@ -1,13 +1,19 @@
 {
   "name": "veda-language",
   "displayName": "Veda Language",
-  "description": "Syntax highlighting for Veda (.veda)",
+  "description": "Syntax highlighting, snippets, and icons for Veda (.veda).",
   "version": "0.0.1",
   "publisher": "veda",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.80.0"
   },
   "categories": ["Programming Languages"],
+  "icon": "icons/veda-extension.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ahansardar/Veda.git"
+  },
   "contributes": {
     "languages": [
       {
@@ -23,7 +29,19 @@
         "scopeName": "source.veda",
         "path": "./syntaxes/veda.tmLanguage.json"
       }
+    ],
+    "snippets": [
+      {
+        "language": "veda",
+        "path": "./snippets/veda.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "veda-icons",
+        "label": "Veda Icons",
+        "path": "./themes/veda-icon-theme.json"
+      }
     ]
   }
 }
-

@@ -1,0 +1,14 @@
+{
+  "iconDefinitions": {
+    "_veda": {
+      "iconPath": "./icons/veda-file.svg"
+    }
+  },
+  "languageIds": {
+    "veda": "_veda"
+  },
+  "fileExtensions": {
+    "veda": "_veda"
+  }
+}
+
