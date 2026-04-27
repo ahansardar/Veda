@@ -1,0 +1,6 @@
+work add(a, b) do
+    give a + b
+end
+
+show add(10, 20)
+

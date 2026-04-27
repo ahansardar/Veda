@@ -1,0 +1,8 @@
+repeat 3 times do
+    show "Veda is running"
+end
+
+count i from 1 to 5 do
+    show i
+end
+

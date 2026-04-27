@@ -1,0 +1,6 @@
+make name = "Ahan"
+make age = 18
+
+show "Name: " + name
+show age
+

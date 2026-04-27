@@ -1,0 +1,10 @@
+work fib(n) do
+    when n <= 1 do
+        give n
+    else do
+        give fib(n - 1) + fib(n - 2)
+    end
+end
+
+show fib(6)
+

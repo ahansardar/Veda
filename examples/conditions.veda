@@ -1,0 +1,8 @@
+make marks = 92
+
+when marks >= 90 do
+    show "Excellent"
+else do
+    show "Keep improving"
+end
+

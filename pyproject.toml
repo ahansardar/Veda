@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "veda-lang"
+version = "1.0.0"
+description = "Veda v1.0 - a beginner-friendly interpreted programming language."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Veda Contributors" }]
+license = { text = "MIT" }
+keywords = ["language", "interpreter", "lexer", "parser", "ast", "repl"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Intended Audience :: Education",
+]
+
+[project.scripts]
+veda = "veda.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "veda"}
+
+[tool.setuptools.packages.find]
+where = ["veda"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
