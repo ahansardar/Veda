@@ -1,4 +1,4 @@
-# Progress log (for collaborators)
+# Progress log 
 
 This is a lightweight “what changed” log so collaborators can quickly understand what’s been built, why it exists, and what to touch next.
 
@@ -23,10 +23,6 @@ Key files:
 - `veda/veda/cli.py`
 - `veda/veda/repl.py`
 
-### Docs cleanup (collaborator-friendly)
-
-- Tightened docs to the essentials and rewrote them to sound less “template-generated”.
-- Kept only: `docs/syntax.md` (practical guide) and `docs/roadmap.md` (direction).
 
 ### Stage 1: “nicer for learners”
 
