@@ -4,9 +4,6 @@ Veda is a small, beginner-friendly interpreted programming language with its own
 
 Veda is **not** Python syntax — Python is only used to implement the first bootstrap interpreter (Stage 0).
 
-Portfolio line:
-
-> Built Veda, a beginner-friendly interpreted programming language with a custom lexer, parser, AST interpreter, runtime environment, CLI runner, REPL, and roadmap toward self-hosting.
 
 ## What you can do
 
