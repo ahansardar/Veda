@@ -60,6 +60,7 @@ class Interpreter:
 
         self.globals = Environment(values={})
         self.env = self.globals
+        self.builtin_names: set[str] = set()
         self._install_builtins()
 
     def _install_builtins(self) -> None:
@@ -133,7 +134,10 @@ class Interpreter:
             value = args[0]
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise VedaTypeError("round() expects a number value.", source=source, span=span)
-            return round(value)
+            # Beginner-friendly rounding: halves go away from zero (2.5 -> 3, -2.5 -> -3).
+            if value >= 0:
+                return math.floor(value + 0.5)
+            return math.ceil(value - 0.5)
 
         self.globals.define("len", BuiltinFunction("len", _len, min_arity=1, max_arity=1))
         self.globals.define("type", BuiltinFunction("type", _type, min_arity=1, max_arity=1))
@@ -146,6 +150,147 @@ class Interpreter:
         self.globals.define("floor", BuiltinFunction("floor", _floor, min_arity=1, max_arity=1))
         self.globals.define("ceil", BuiltinFunction("ceil", _ceil, min_arity=1, max_arity=1))
         self.globals.define("round", BuiltinFunction("round", _round, min_arity=1, max_arity=1))
+
+        def _replace(args: list[Any], source: str, span: SourceSpan) -> Any:
+            text, old, new = args
+            if not isinstance(text, str) or not isinstance(old, str) or not isinstance(new, str):
+                raise VedaTypeError("replace() expects (text, text, text).", source=source, span=span)
+            return text.replace(old, new)
+
+        def _contains(args: list[Any], source: str, span: SourceSpan) -> Any:
+            text, part = args
+            if not isinstance(text, str) or not isinstance(part, str):
+                raise VedaTypeError("contains() expects (text, text).", source=source, span=span)
+            return part in text
+
+        def _starts(args: list[Any], source: str, span: SourceSpan) -> Any:
+            text, prefix = args
+            if not isinstance(text, str) or not isinstance(prefix, str):
+                raise VedaTypeError("starts() expects (text, text).", source=source, span=span)
+            return text.startswith(prefix)
+
+        def _ends(args: list[Any], source: str, span: SourceSpan) -> Any:
+            text, suffix = args
+            if not isinstance(text, str) or not isinstance(suffix, str):
+                raise VedaTypeError("ends() expects (text, text).", source=source, span=span)
+            return text.endswith(suffix)
+
+        def _find(args: list[Any], source: str, span: SourceSpan) -> Any:
+            text, part = args
+            if not isinstance(text, str) or not isinstance(part, str):
+                raise VedaTypeError("find() expects (text, text).", source=source, span=span)
+            return text.find(part)
+
+        def _slice(args: list[Any], source: str, span: SourceSpan) -> Any:
+            text, start, end = args
+            if not isinstance(text, str):
+                raise VedaTypeError("slice() expects text as first argument.", source=source, span=span)
+            if isinstance(start, bool) or not isinstance(start, (int, float)):
+                raise VedaTypeError("slice() expects start as a number.", source=source, span=span)
+            if isinstance(end, bool) or not isinstance(end, (int, float)):
+                raise VedaTypeError("slice() expects end as a number.", source=source, span=span)
+            return text[int(start) : int(end)]
+
+        def _repeat_text(args: list[Any], source: str, span: SourceSpan) -> Any:
+            text, times = args
+            if not isinstance(text, str):
+                raise VedaTypeError("repeat_text() expects text as first argument.", source=source, span=span)
+            if isinstance(times, bool) or not isinstance(times, (int, float)):
+                raise VedaTypeError("repeat_text() expects times as a number.", source=source, span=span)
+            n = int(times)
+            if n < 0:
+                raise VedaTypeError("repeat_text() expects a non-negative times value.", source=source, span=span)
+            return text * n
+
+        def _sqrt(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value = args[0]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise VedaTypeError("sqrt() expects a number value.", source=source, span=span)
+            if value < 0:
+                raise VedaTypeError("sqrt() cannot take a negative number.", source=source, span=span)
+            return math.sqrt(value)
+
+        def _pow(args: list[Any], source: str, span: SourceSpan) -> Any:
+            a, b = args
+            if isinstance(a, bool) or not isinstance(a, (int, float)):
+                raise VedaTypeError("pow() expects numbers.", source=source, span=span)
+            if isinstance(b, bool) or not isinstance(b, (int, float)):
+                raise VedaTypeError("pow() expects numbers.", source=source, span=span)
+            return a**b
+
+        def _min2(args: list[Any], source: str, span: SourceSpan) -> Any:
+            a, b = args
+            if isinstance(a, bool) or not isinstance(a, (int, float)):
+                raise VedaTypeError("min() expects numbers.", source=source, span=span)
+            if isinstance(b, bool) or not isinstance(b, (int, float)):
+                raise VedaTypeError("min() expects numbers.", source=source, span=span)
+            return a if a <= b else b
+
+        def _max2(args: list[Any], source: str, span: SourceSpan) -> Any:
+            a, b = args
+            if isinstance(a, bool) or not isinstance(a, (int, float)):
+                raise VedaTypeError("max() expects numbers.", source=source, span=span)
+            if isinstance(b, bool) or not isinstance(b, (int, float)):
+                raise VedaTypeError("max() expects numbers.", source=source, span=span)
+            return a if a >= b else b
+
+        def _clamp(args: list[Any], source: str, span: SourceSpan) -> Any:
+            value, lo, hi = args
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise VedaTypeError("clamp() expects numbers.", source=source, span=span)
+            if isinstance(lo, bool) or not isinstance(lo, (int, float)):
+                raise VedaTypeError("clamp() expects numbers.", source=source, span=span)
+            if isinstance(hi, bool) or not isinstance(hi, (int, float)):
+                raise VedaTypeError("clamp() expects numbers.", source=source, span=span)
+            if lo > hi:
+                raise VedaTypeError("clamp() expects lo <= hi.", source=source, span=span)
+            return hi if value > hi else (lo if value < lo else value)
+
+        self.globals.define("replace", BuiltinFunction("replace", _replace, min_arity=3, max_arity=3))
+        self.globals.define("contains", BuiltinFunction("contains", _contains, min_arity=2, max_arity=2))
+        self.globals.define("starts", BuiltinFunction("starts", _starts, min_arity=2, max_arity=2))
+        self.globals.define("ends", BuiltinFunction("ends", _ends, min_arity=2, max_arity=2))
+        self.globals.define("find", BuiltinFunction("find", _find, min_arity=2, max_arity=2))
+        self.globals.define("slice", BuiltinFunction("slice", _slice, min_arity=3, max_arity=3))
+        self.globals.define("repeat_text", BuiltinFunction("repeat_text", _repeat_text, min_arity=2, max_arity=2))
+        self.globals.define("sqrt", BuiltinFunction("sqrt", _sqrt, min_arity=1, max_arity=1))
+        self.globals.define("pow", BuiltinFunction("pow", _pow, min_arity=2, max_arity=2))
+        self.globals.define("min", BuiltinFunction("min", _min2, min_arity=2, max_arity=2))
+        self.globals.define("max", BuiltinFunction("max", _max2, min_arity=2, max_arity=2))
+        self.globals.define("clamp", BuiltinFunction("clamp", _clamp, min_arity=3, max_arity=3))
+
+        self.globals.define("pi", math.pi)
+        self.globals.define("e", math.e)
+
+        self.builtin_names.update(
+            {
+                "len",
+                "type",
+                "text",
+                "num",
+                "upper",
+                "lower",
+                "trim",
+                "abs",
+                "floor",
+                "ceil",
+                "round",
+                "replace",
+                "contains",
+                "starts",
+                "ends",
+                "find",
+                "slice",
+                "repeat_text",
+                "sqrt",
+                "pow",
+                "min",
+                "max",
+                "clamp",
+                "pi",
+                "e",
+            }
+        )
 
     def run(self, program: Program) -> None:
         for stmt in program.statements:

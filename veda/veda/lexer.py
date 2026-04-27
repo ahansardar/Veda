@@ -22,44 +22,58 @@ class Lexer:
         self._tokens: List[Token] = []
 
     def tokenize(self) -> list[Token]:
+        tokens, errors = self.tokenize_with_errors()
+        if errors:
+            raise errors[0]
+        return tokens
+
+    def tokenize_with_errors(self) -> tuple[list[Token], list[VedaSyntaxError]]:
+        # Allow reusing a Lexer instance in tooling.
+        self._cursor = _Cursor()
+        self._tokens = []
+        errors: list[VedaSyntaxError] = []
         while not self._is_at_end():
-            ch = self._peek()
+            try:
+                ch = self._peek()
 
-            # Some editors on Windows may save UTF-8 with a BOM.
-            # Treat it as invisible whitespace so beginners don't get a confusing error.
-            if ch == "\ufeff":
-                if self._cursor.index == 0 and self._cursor.line == 1 and self._cursor.column == 1:
-                    self._cursor.index += 1
-                else:
+                # Some editors on Windows may save UTF-8 with a BOM.
+                # Treat it as invisible whitespace so beginners don't get a confusing error.
+                if ch == "\ufeff":
+                    if self._cursor.index == 0 and self._cursor.line == 1 and self._cursor.column == 1:
+                        self._cursor.index += 1
+                    else:
+                        self._advance()
+                    continue
+
+                if ch in " \t\r":
                     self._advance()
-                continue
+                    continue
 
-            if ch in " \t\r":
-                self._advance()
-                continue
+                if ch == "\n":
+                    self._add_token(TokenType.NEWLINE, "\n", None, length=1)
+                    self._advance_line()
+                    continue
 
-            if ch == "\n":
-                self._add_token(TokenType.NEWLINE, "\n", None, length=1)
-                self._advance_line()
-                continue
+                if ch == "#":
+                    self._skip_comment()
+                    continue
 
-            if ch == "#":
-                self._skip_comment()
-                continue
+                if ch == '"':
+                    self._lex_string()
+                    continue
 
-            if ch == '"':
-                self._lex_string()
-                continue
+                if ch.isdigit():
+                    self._lex_number()
+                    continue
 
-            if ch.isdigit():
-                self._lex_number()
-                continue
+                if ch.isalpha() or ch == "_":
+                    self._lex_identifier_or_keyword()
+                    continue
 
-            if ch.isalpha() or ch == "_":
-                self._lex_identifier_or_keyword()
-                continue
-
-            self._lex_symbol()
+                self._lex_symbol()
+            except VedaSyntaxError as e:
+                errors.append(e)
+                self._recover_from_error()
 
         self._tokens.append(
             Token(
@@ -72,7 +86,7 @@ class Lexer:
                 length=0,
             )
         )
-        return self._tokens
+        return self._tokens, errors
 
     def _is_at_end(self) -> bool:
         return self._cursor.index >= len(self.source)
@@ -175,6 +189,29 @@ class Lexer:
                 length=1,
             ),
         )
+
+    def _recover_from_error(self) -> None:
+        """
+        Best-effort recovery for `tokenize_with_errors()`.
+        Advance at least one character, and for broken strings skip to end of line.
+        """
+        if self._is_at_end():
+            return
+        ch = self._peek()
+        if ch == '"':
+            # Skip until newline or closing quote (prefer newline to keep line accounting stable).
+            self._advance()  # skip opening quote
+            while not self._is_at_end() and self._peek() not in {'"', "\n"}:
+                self._advance()
+            if not self._is_at_end() and self._peek() == '"':
+                self._advance()
+            return
+
+        if ch == "\n":
+            self._advance_line()
+            return
+
+        self._advance()
 
     def _unescape(self, value: str) -> str:
         out: list[str] = []

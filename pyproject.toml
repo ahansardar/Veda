@@ -20,6 +20,9 @@ classifiers = [
 [project.scripts]
 veda = "veda.cli:main"
 
+[project.optional-dependencies]
+repl = ["prompt_toolkit>=3.0.0"]
+
 [tool.setuptools]
 package-dir = {"" = "veda"}
 
@@ -29,4 +32,3 @@ where = ["veda"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-

@@ -28,13 +28,19 @@ Key files:
 
 - REPL improvements:
   - History support when `readline` is available (arrow keys in many terminals).
-  - Simple REPL commands: `:help`, `:history`, `:clear`.
+  - Optional “pro” editing with `prompt_toolkit` (install via `pip install -e .[repl]`).
+  - Simple REPL commands: `:help`, `:history`, `:clear`, `:vars`, `:reset`, `:load <file.veda>`.
   - Multi-line blocks feel more natural by waiting until `end` closes a block.
 - Small standard library additions:
   - Text helpers: `upper(text)`, `lower(text)`, `trim(text)`
-  - Math helpers: `abs(number)`, `floor(number)`, `ceil(number)`, `round(number)`
+  - More text helpers: `replace(text, old, new)`, `contains(text, part)`, `starts(text, prefix)`, `ends(text, suffix)`,
+    `find(text, part)`, `slice(text, start, end)`, `repeat_text(text, times)`
+  - More math helpers: `abs(number)`, `floor(number)`, `ceil(number)`, `round(number)`, `sqrt(number)`, `pow(a, b)`,
+    `min(a, b)`, `max(a, b)`, `clamp(value, lo, hi)`
+  - Math constants: `pi`, `e`
 - Friendlier `veda check`:
   - Collects and prints multiple syntax errors in one run (parser recovery via synchronization).
+  - Also collects lexer errors (best-effort) instead of stopping at the first unexpected character.
 - Windows quality-of-life:
   - UTF‑8 BOM is ignored in the lexer; error printing hides BOM so caret alignment stays sane.
 
@@ -44,4 +50,3 @@ How to try:
 - `python main.py repl`
 - `python main.py check examples/hello.veda`
 - `pytest`
-

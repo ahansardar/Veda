@@ -37,8 +37,50 @@ def test_interpreting_functions() -> None:
 
 
 def test_builtins_text_and_math_helpers() -> None:
-    out = run('show upper("hi")\nshow lower("HI")\nshow trim("  ok  ")\nshow abs(-5)\n')
-    assert out == ["HI", "hi", "ok", "5"]
+    out = run(
+        'show upper("hi")\n'
+        'show lower("HI")\n'
+        'show trim("  ok  ")\n'
+        'show replace("a-b-c", "-", "_")\n'
+        'show contains("hello", "ell")\n'
+        'show starts("hello", "he")\n'
+        'show ends("hello", "lo")\n'
+        'show find("hello", "z")\n'
+        'show slice("hello", 1, 4)\n'
+        'show repeat_text("ha", 3)\n'
+        "show abs(-5)\n"
+        "show floor(2.9)\n"
+        "show ceil(2.1)\n"
+        "show round(2.5)\n"
+        "show sqrt(9)\n"
+        "show pow(2, 3)\n"
+        "show min(2, 3)\n"
+        "show max(2, 3)\n"
+        "show clamp(10, 0, 5)\n"
+        "show pi\n"
+    )
+    assert out == [
+        "HI",
+        "hi",
+        "ok",
+        "a_b_c",
+        "true",
+        "true",
+        "true",
+        "-1",
+        "ell",
+        "hahaha",
+        "5",
+        "2",
+        "3",
+        "3",
+        "3.0",
+        "8",
+        "2",
+        "3",
+        "5",
+        str(__import__("math").pi),
+    ]
 
 
 def test_runtime_error_for_undefined_variable() -> None:

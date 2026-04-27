@@ -20,8 +20,9 @@ def run_file(path: Path) -> None:
 
 def check_file(path: Path) -> None:
     source = path.read_text(encoding="utf-8")
-    tokens = Lexer(source, filename=str(path)).tokenize()
-    _, errors = Parser(tokens, source=source, filename=str(path)).parse_with_errors()
+    tokens, lex_errors = Lexer(source, filename=str(path)).tokenize_with_errors()
+    _, parse_errors = Parser(tokens, source=source, filename=str(path)).parse_with_errors()
+    errors = lex_errors + parse_errors
     if errors:
         for i, err in enumerate(errors):
             if i:

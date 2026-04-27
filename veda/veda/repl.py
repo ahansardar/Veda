@@ -18,7 +18,7 @@ class Repl:
     input_fn: Callable[[str], str] = input
 
     def run(self) -> None:
-        self._setup_history()
+        self._setup_input_and_history()
 
         self.output("Veda v1.0 REPL")
         self.output("Type 'exit' to quit.\n")
@@ -29,18 +29,12 @@ class Repl:
 
         while True:
             prompt = "veda> " if not buffer_lines else "...  "
-            line = self.input_fn(prompt)
+            line = self._prompt(prompt)
             if not buffer_lines and line.strip() == "exit":
                 return
 
-            if not buffer_lines and line.strip() in {":help", "help"}:
-                self.output("Commands: exit, :help, :history, :clear")
-                continue
-            if not buffer_lines and line.strip() == ":history":
-                self._print_history()
-                continue
-            if not buffer_lines and line.strip() == ":clear":
-                self._clear_history()
+            if not buffer_lines and line.strip().startswith(":"):
+                interpreter = self._handle_command(line.strip(), interpreter=interpreter)
                 continue
 
             if getattr(self, "_readline", None) is None:
@@ -86,17 +80,42 @@ class Repl:
                 closes += 1
         return max(opens - closes, 0)
 
-    def _setup_history(self) -> None:
+    def _setup_input_and_history(self) -> None:
         """
-        Use readline history when available (arrow-key history in many terminals).
-        Falls back gracefully on environments without readline.
+        Prefer prompt_toolkit if installed for a nicer REPL experience.
+        Otherwise use readline history when available (arrow-key history in many terminals).
+        Falls back gracefully to plain input().
         """
+        self._prompt = self.input_fn
+
+        # Optional: prompt_toolkit gives a much better editing experience.
+        # It is intentionally optional and controlled via `pip install -e .[repl]`.
+        if self.input_fn is input:
+            try:
+                from prompt_toolkit import prompt as pt_prompt  # type: ignore
+                from prompt_toolkit.history import FileHistory  # type: ignore
+
+                history_file = Path.home() / ".veda_history"
+                history = FileHistory(str(history_file))
+
+                def _pt(prompt_text: str) -> str:
+                    return pt_prompt(prompt_text, history=history)
+
+                self._prompt = _pt
+                self._history_file = history_file
+                self._readline = None
+                self._manual_history = []
+                return
+            except Exception:
+                pass
+
         try:
             import readline  # type: ignore
         except Exception:
             self._readline = None
             self._history_file = None
             self._manual_history: list[str] = []
+            self._prompt = self.input_fn
             return
 
         self._readline = readline
@@ -122,6 +141,16 @@ class Repl:
             pass
 
     def _print_history(self) -> None:
+        if getattr(self, "_history_file", None) is not None and self._history_file.exists():
+            try:
+                lines = self._history_file.read_text(encoding="utf-8", errors="ignore").splitlines()
+                for i, item in enumerate(lines[-20:], start=max(len(lines) - 20, 0) + 1):
+                    if item.strip():
+                        self.output(f"{i}: {item}")
+                return
+            except Exception:
+                pass
+
         if getattr(self, "_readline", None) is not None:
             n = self._readline.get_current_history_length()
             start = max(n - 20, 1)
@@ -143,3 +172,82 @@ class Repl:
                 pass
             return
         self._manual_history = []
+
+        if getattr(self, "_history_file", None) is not None:
+            try:
+                self._history_file.write_text("", encoding="utf-8")
+            except Exception:
+                pass
+
+    def _handle_command(self, line: str, *, interpreter: Optional[Interpreter]) -> Optional[Interpreter]:
+        parts = line.split(maxsplit=1)
+        cmd = parts[0]
+        arg = parts[1] if len(parts) > 1 else ""
+
+        if cmd in {":help", ":h"}:
+            self.output("Commands:")
+            self.output("  :help              Show this help")
+            self.output("  :history           Show recent history")
+            self.output("  :clear             Clear history")
+            self.output("  :vars              List global variables")
+            self.output("  :reset             Reset REPL environment")
+            self.output("  :load <file.veda>  Run a file into the current REPL env")
+            return interpreter
+
+        if cmd == ":history":
+            self._print_history()
+            return interpreter
+
+        if cmd == ":clear":
+            self._clear_history()
+            self.output("History cleared.")
+            return interpreter
+
+        if cmd == ":reset":
+            self.output("Environment reset.")
+            return None
+
+        if cmd == ":vars":
+            if interpreter is None:
+                self.output("(no variables yet)")
+                return interpreter
+            names = sorted(
+                n for n in interpreter.globals.values.keys() if n not in getattr(interpreter, "builtin_names", set())
+            )
+            if not names:
+                self.output("(no variables yet)")
+                return interpreter
+            for name in names:
+                value = interpreter.globals.values.get(name)
+                self.output(f"{name} = {value!r}")
+            return interpreter
+
+        if cmd == ":load":
+            if not arg:
+                self.output("Usage: :load path/to/file.veda")
+                return interpreter
+            path = Path(arg).expanduser()
+            if not path.exists():
+                self.output(f"File not found: {arg}")
+                return interpreter
+            source = path.read_text(encoding="utf-8")
+            try:
+                tokens = Lexer(source, filename=str(path)).tokenize()
+                program = Parser(tokens, source=source, filename=str(path)).parse()
+                if interpreter is None:
+                    interpreter = Interpreter(
+                        source=source,
+                        filename=str(path),
+                        output=self.output,
+                        input_fn=self.input_fn,
+                    )
+                else:
+                    interpreter.source = source
+                    interpreter.filename = str(path)
+                interpreter.run(program)
+            except VedaError as e:
+                self.output(e.pretty())
+            return interpreter
+
+        self.output("Unknown command. Try :help")
+        return interpreter

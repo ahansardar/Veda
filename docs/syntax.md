@@ -124,10 +124,27 @@ Truthiness rules:
 - `upper(text)` → text
 - `lower(text)` → text
 - `trim(text)` → text
+- `replace(text, old, new)` → text
+- `contains(text, part)` → bool
+- `starts(text, prefix)` → bool
+- `ends(text, suffix)` → bool
+- `find(text, part)` → number (index, or `-1`)
+- `slice(text, start, end)` → text
+- `repeat_text(text, times)` → text
 - `abs(number)` → number
 - `floor(number)` → number
 - `ceil(number)` → number
 - `round(number)` → number
+- `sqrt(number)` → number
+- `pow(a, b)` → number
+- `min(a, b)` → number
+- `max(a, b)` → number
+- `clamp(value, lo, hi)` → number
+
+Constants:
+
+- `pi`
+- `e`
 
 ## Comments
 
