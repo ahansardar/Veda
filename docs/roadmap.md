@@ -1,9 +1,8 @@
 # Veda roadmap
 
-This repo is intentionally “Stage 0”: a clear, readable interpreter you can hack on without needing a compiler toolchain.
 
-## Stage 0 (today)
 
+## Stage 0 (current)
 - Source → lexer → parser → AST → interpreter
 - `veda run`, `veda check`, `veda repl`
 - Error messages include filename + line/column + a pointer

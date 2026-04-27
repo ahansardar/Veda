@@ -1,6 +1,6 @@
 # Veda v1.0 Syntax (practical guide)
 
-This doc is meant to be short and collaborator-friendly. If you’re teaching Veda, you should be able to copy/paste any snippet here and it should work as-is.
+
 
 ## Values and types
 
