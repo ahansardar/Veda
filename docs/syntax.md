@@ -102,6 +102,20 @@ else do
 end
 ```
 
+### Else-when (v1.0)
+
+For multiple conditions, Veda supports `else when` as "else-if" sugar:
+
+```veda
+when op == "+" do
+    show a + b
+else when op == "-" do
+    show a - b
+else do
+    show "Invalid operator"
+end
+```
+
 ## Loops
 
 Repeat N times:
