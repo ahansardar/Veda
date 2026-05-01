@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from veda.ast_nodes import BinaryExpression, DictLiteral, IndexExpression, ListLiteral, Literal, Program, SliceExpression, VariableDeclaration
+from veda.ast_nodes import BinaryExpression, DictLiteral, IndexExpression, ListLiteral, Literal, Program, SliceExpression, VariableDeclaration, WhenStatement
 from veda.lexer import Lexer
 from veda.parser import Parser
 
@@ -58,3 +58,24 @@ def test_parsing_slice_and_map_literal() -> None:
     show_stmt = program.statements[1]
     expr = show_stmt.expression  # type: ignore[attr-defined]
     assert isinstance(expr, SliceExpression)
+
+
+def test_when_supports_else_when_chain() -> None:
+    source = (
+        'make op = "-"\n'
+        'make a = 10\n'
+        'make b = 3\n'
+        "when op == \"+\" do\n"
+        "    show a + b\n"
+        "else when op == \"-\" do\n"
+        "    show a - b\n"
+        "else do\n"
+        "    show 0\n"
+        "end\n"
+    )
+    program = parse(source)
+    stmt = program.statements[3]
+    assert isinstance(stmt, WhenStatement)
+    assert stmt.else_branch is not None
+    assert len(stmt.else_branch) == 1
+    assert isinstance(stmt.else_branch[0], WhenStatement)

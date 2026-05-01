@@ -25,6 +25,7 @@ Key files:
 
 ### Stage 1: nicer for learners
 
+- Else-when support: else when <cond> do chains (parsed as nested when).
 - REPL improvements:
   - History support when `readline` is available.
   - Optional "pro" editing with `prompt_toolkit` (install via `pip install -e .[repl]`).
@@ -65,3 +66,4 @@ How to try:
 - `python main.py repl`
 - `python main.py check examples/hello.veda`
 - `pytest`
+

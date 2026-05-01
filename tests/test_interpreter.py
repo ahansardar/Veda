@@ -135,6 +135,24 @@ def test_use_stdlib_module_math() -> None:
     assert float(out[1]) > 3.14
 
 
+def test_else_when_chain_executes_in_order() -> None:
+    out = run(
+        'make op = "-"\n'
+        "make a = 10\n"
+        "make b = 4\n"
+        "when op == \"+\" do\n"
+        "    show a + b\n"
+        "else when op == \"-\" do\n"
+        "    show a - b\n"
+        "else when op == \"*\" do\n"
+        "    show a * b\n"
+        "else do\n"
+        "    show 0\n"
+        "end\n"
+    )
+    assert out == ["6"]
+
+
 def test_set_bytes_datetime_types() -> None:
     out = run(
         'make s = to_set([1, 1, 2])\nshow type(s)\nshow set_has(s, 2)\n'

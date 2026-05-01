@@ -291,21 +291,51 @@ class Parser:
         return VariableDeclaration(name=name, initializer=initializer)
 
     def _when_stmt(self) -> WhenStatement:
-        condition = self._expression()
+        """
+        Parse a `when` block.
+
+        Supported forms:
+          - when <cond> do ... else do ... end
+          - when <cond> do ... else when <cond> do ... else do ... end
+
+        `else when` is "else-if" sugar and is desugared into nested WhenStatement nodes.
+        """
+
+        branches: list[tuple] = []
+
+        first_condition = self._expression()
         self._expect_keyword("do", "Expected 'do' after condition.")
         self._skip_newlines()
+        first_then = self._block(terminators={"else", "end"})
+        branches.append((first_condition, first_then))
 
-        then_branch = self._block(terminators={"else", "end"})
         else_branch: Optional[List] = None
 
-        if self._match_keyword("else"):
+        while self._match_keyword("else"):
+            if self._match_keyword("when"):
+                condition = self._expression()
+                self._expect_keyword("do", "Expected 'do' after else-when condition.")
+                self._skip_newlines()
+                then_branch = self._block(terminators={"else", "end"})
+                branches.append((condition, then_branch))
+                continue
+
             self._expect_keyword("do", "Expected 'do' after 'else'.")
             self._skip_newlines()
             else_branch = self._block(terminators={"end"})
+            break
 
         self._expect_keyword("end", "Expected 'end' to close 'when' block.")
         self._consume_line_end()
-        return WhenStatement(condition=condition, then_branch=then_branch, else_branch=else_branch)
+
+        nested_else = else_branch
+        for condition, then_branch in reversed(branches[1:]):
+            nested_else = [
+                WhenStatement(condition=condition, then_branch=then_branch, else_branch=nested_else)
+            ]
+
+        condition, then_branch = branches[0]
+        return WhenStatement(condition=condition, then_branch=then_branch, else_branch=nested_else)
 
     def _repeat_stmt(self) -> RepeatStatement:
         times = self._expression()
