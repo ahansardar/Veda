@@ -5,7 +5,7 @@ from enum import Enum, auto
 from typing import Any
 
 
-class TokenType(Enum):
+class TokenType(Enum): 
     EOF = auto()
     NEWLINE = auto()
 
@@ -38,6 +38,7 @@ class TokenType(Enum):
     GREATER_EQUAL = auto()
     LESS = auto()
     LESS_EQUAL = auto()
+    ERROR = auto()
 
 
 KEYWORDS = {
