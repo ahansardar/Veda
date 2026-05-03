@@ -1,0 +1,17 @@
+make name = "Ahan"
+make age = 18
+
+show "Name: " + name
+show age + 10
+
+when age >= 18 do
+    show "Adult"
+else do
+    show "Minor"
+end
+
+work add(a, b) do
+    give a + b
+end
+
+show add(10, 20)
